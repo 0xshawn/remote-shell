@@ -1,0 +1,5 @@
+node_modules/
+logs/
+.env
+nginx/certs/
+npm-debug.log*
