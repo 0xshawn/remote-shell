@@ -1,6 +1,6 @@
 # remote-shell-android
 
-A native **Android client** for [`remote-shell`](../remote-shell) — the persistent web
+A native **Android client** for [`remote-shell`](../server) — the persistent web
 shell whose defining feature is **session persistence**: kill the app, switch networks,
 reconnect, and you resume the *exact* same shell (working directory, env vars, running
 processes, history) because every session is transparently backed by **tmux** on the
