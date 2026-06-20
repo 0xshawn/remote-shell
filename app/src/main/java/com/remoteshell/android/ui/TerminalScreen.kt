@@ -167,6 +167,7 @@ private fun KeyBar(controller: SessionController, mods: Modifiers) {
             KeyButton("→") { controller.sendKeyCode(KeyEvent.KEYCODE_DPAD_RIGHT) }
             KeyButton("Home") { controller.sendKeyCode(KeyEvent.KEYCODE_MOVE_HOME) }
             KeyButton("End") { controller.sendKeyCode(KeyEvent.KEYCODE_MOVE_END) }
+            KeyButton("Paste") { controller.paste() }
             KeyButton("|") { controller.sendCodePoint('|'.code) }
             KeyButton("~") { controller.sendCodePoint('~'.code) }
             KeyButton("/") { controller.sendCodePoint('/'.code) }

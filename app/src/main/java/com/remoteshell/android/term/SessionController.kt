@@ -1,5 +1,6 @@
 package com.remoteshell.android.term
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -213,6 +214,16 @@ class SessionController(
         socket.sendInput(s)
     }
 
+    /** Paste the clipboard text into the shell, honoring bracketed-paste mode. */
+    fun paste() {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        val item = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0) ?: return
+        val text = item.coerceToText(context)?.toString().orEmpty()
+        if (text.isEmpty()) return
+        val emulator = session.emulator
+        if (emulator != null) emulator.paste(text) else socket.sendInput(text)
+    }
+
     /** A special key (Esc/Tab/arrows/...) folded with the current sticky modifiers. */
     fun sendKeyCode(keyCode: Int) {
         val v = view ?: return
@@ -313,7 +324,9 @@ class SessionController(
 
     override fun onSingleTapUp(e: MotionEvent) { showKeyboard() }
     override fun shouldBackButtonBeMappedToEscape(): Boolean = false
-    override fun shouldEnforceCharBasedInput(): Boolean = true
+    // false -> TYPE_NULL: a normal text keyboard. true would set VISIBLE_PASSWORD, which many
+    // IMEs render as a secure/incognito keyboard — not what we want for a shell.
+    override fun shouldEnforceCharBasedInput(): Boolean = false
     override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
     override fun isTerminalViewSelected(): Boolean = true
     override fun copyModeChanged(copyMode: Boolean) {}
