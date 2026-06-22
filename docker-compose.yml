@@ -1,0 +1,67 @@
+# Monorepo deployment: builds the Go server + bakes in the web/ frontend, then
+# fronts it with an optional nginx TLS proxy. Run from the repo root:
+#
+#   cp .env.example .env   # edit AUTH_USER / AUTH_PASS / TOKEN_SECRET / SSH_USER
+#   docker compose up -d
+#
+# The web terminal logs into the HOST (via SSH), not the container — see SSH_*.
+
+services:
+  remote-shell:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: remote-shell:latest
+    container_name: remote-shell
+    restart: unless-stopped
+    environment:
+      AUTH_USER: ${AUTH_USER:-admin}
+      AUTH_PASS: ${AUTH_PASS:-changeme}
+      # A STABLE secret keeps login tokens valid across restarts. Generate with:
+      #   openssl rand -hex 32
+      TOKEN_SECRET: ${TOKEN_SECRET:-please-change-this-secret}
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-0}   # minutes a detached+idle session survives (0 = forever)
+      RING_BYTES: ${RING_BYTES:-2097152}       # per-session scrollback buffer (bytes)
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # --- Log into the HOST instead of the container's own shell. ---
+      # The container SSHes to the host via host.docker.internal (see extra_hosts).
+      # SSH_KEY points at a key generated inside the container (persisted in the
+      # shell-home volume); its public key must be in the host user's authorized_keys.
+      # Leave SSH_HOST empty to fall back to a local container shell.
+      SSH_HOST: ${SSH_HOST-host.docker.internal}
+      SSH_USER: ${SSH_USER-youruser}
+      SSH_PORT: ${SSH_PORT:-22}
+      SSH_KEY: ${SSH_KEY-/home/shell/.ssh/id_hostshell}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Published only to localhost; the nginx service reaches it over the internal
+    # network. To expose the app directly without TLS, use "7681:7681" instead.
+    ports:
+      - "127.0.0.1:7681:7681"
+    volumes:
+      # Persist the home directory (and the SSH key) across container recreation.
+      - shell-home:/home/shell
+
+  # Optional TLS reverse proxy. Put your certs in ./server/nginx/certs as
+  # fullchain.pem and privkey.pem, then `docker compose up`.
+  nginx:
+    image: nginx:alpine
+    container_name: remote-shell-nginx
+    restart: unless-stopped
+    depends_on:
+      - remote-shell
+    environment:
+      # Your domain, injected into the nginx template at startup (set in .env).
+      # Defaults to "_" (catch-all) so it still works without a domain.
+      SERVER_NAME: ${SERVER_NAME:-_}
+    # Host ports moved off 80/443 to avoid clashing with an existing reverse
+    # proxy. Access the UI at https://<host>:8443
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./server/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./server/nginx/certs:/etc/nginx/certs:ro
+
+volumes:
+  shell-home:

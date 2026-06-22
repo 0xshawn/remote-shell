@@ -1,0 +1,13 @@
+# The build context is the repo root; keep it small and exclude everything the
+# image doesn't need.
+.git
+.gitignore
+.code-review-graph
+.claude
+server.archived
+android
+**/node_modules
+server/remote-shell
+**/*.log
+.env
+*.md

@@ -1,0 +1,11 @@
+# Added by code-review-graph
+.code-review-graph/
+
+# Go build output
+/server/remote-shell
+
+# Local environment / secrets
+.env
+
+# nginx TLS certs (keep the dir, ignore the keys)
+/server/nginx/certs/*.pem
