@@ -79,6 +79,32 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": p.User, "authEnabled": s.auth.enabled})
 }
 
+// handleSessions lists the authenticated user's live sessions so any device can
+// render the full tab list (multi-device visibility).
+func (s *server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	p := s.auth.verifyToken(extractToken(r))
+	if p == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": s.mgr.list(p.User)})
+}
+
+// handleSessionDelete terminates one of the user's sessions by ?id=<sid>.
+func (s *server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
+	p := s.auth.verifyToken(extractToken(r))
+	if p == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	sid := sanitize(r.URL.Query().Get("id"))
+	if sid == "" || !s.mgr.killSession(p.User, sid) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such session"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	payload := s.auth.verifyToken(q.Get("token"))
@@ -93,6 +119,7 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	user := payload.User
 	sid := sanitize(q.Get("session"))
+	title := q.Get("title")
 	cols := u16(atoiOr(q.Get("cols"), 80), 80)
 	rows := u16(atoiOr(q.Get("rows"), 24), 24)
 
@@ -103,7 +130,7 @@ func (s *server) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, isNew, err := s.mgr.getOrCreate(user, sid, cols, rows)
+	sess, isNew, err := s.mgr.getOrCreate(user, sid, title, cols, rows)
 	if err != nil {
 		logger.Warnf("attach failed user=%s: %v", user, err)
 		c.send(eventFrame(map[string]any{"event": "error", "message": err.Error()}))
@@ -190,6 +217,8 @@ func main() {
 	})
 	mux.HandleFunc("/api/login", srv.handleLogin)
 	mux.HandleFunc("/api/me", srv.handleMe)
+	mux.HandleFunc("GET /api/sessions", srv.handleSessions)
+	mux.HandleFunc("DELETE /api/sessions", srv.handleSessionDelete)
 	mux.HandleFunc("/ws", srv.handleWS)
 	mux.Handle("/", http.FileServer(http.Dir(cfg.webDir)))
 

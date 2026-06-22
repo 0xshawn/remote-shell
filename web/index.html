@@ -12,26 +12,47 @@
 </head>
 <body>
   <div id="toolbar">
-    <span id="status" class="status status-off">offline</span>
-    <span id="session-label" class="spacer"></span>
-    <div class="btns">
-      <button id="btn-font-dec" title="Smaller font">A-</button>
-      <button id="btn-font-inc" title="Larger font">A+</button>
-      <button id="btn-theme" title="Toggle theme">&#127773;</button>
-      <button id="btn-copy" title="Copy selection">Copy</button>
-      <button id="btn-paste" title="Paste from clipboard">Paste</button>
-      <button id="btn-clear" title="Clear screen">Clear</button>
-      <button id="btn-reconnect" title="Reconnect">Reconnect</button>
-      <button id="btn-disconnect" title="Disconnect (session kept alive)">Disconnect</button>
-      <button id="btn-kill" class="danger" title="Terminate the persistent session">Kill</button>
-      <button id="btn-logout" title="Log out (forget the saved token)">Logout</button>
+    <span id="status" class="status-dot status-off" title="offline"></span>
+    <div id="tabs"></div>
+    <button id="btn-paste" title="Paste from clipboard">Paste</button>
+    <div id="menu-wrap">
+      <button id="btn-menu" title="More actions" aria-haspopup="true">&#8943;</button>
+      <div id="menu" class="hidden" role="menu">
+        <button data-act="copy">Copy selection</button>
+        <button data-act="clear">Clear screen</button>
+        <button data-act="font-dec">Font &minus;</button>
+        <button data-act="font-inc">Font &plus;</button>
+        <button data-act="theme">Toggle theme</button>
+        <button data-act="reconnect">Reconnect</button>
+        <button data-act="disconnect">Disconnect</button>
+        <button data-act="kill" class="danger">Kill terminal</button>
+        <button data-act="logout">Logout</button>
+      </div>
     </div>
   </div>
 
   <div id="terminal"></div>
 
-  <!-- Helper key row, shown on touch devices -->
-  <div id="keybar"></div>
+  <!-- Helper keys, shown on touch devices: row 1 essentials + expand toggle,
+       row 2 extras (hidden until expanded). -->
+  <div id="keybar">
+    <div id="keybar-row1"></div>
+    <div id="keybar-row2" class="hidden"></div>
+  </div>
+
+  <!-- Paste fallback overlay (used when navigator.clipboard is unavailable,
+       e.g. over plain HTTP). -->
+  <div id="paste-overlay" class="hidden">
+    <div id="paste-box">
+      <h3>Paste</h3>
+      <p class="hint">Long-press / Ctrl-V into the box, then Send.</p>
+      <textarea id="paste-text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+      <div class="paste-actions">
+        <button id="paste-cancel">Cancel</button>
+        <button id="paste-send" class="primary">Send</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Login overlay -->
   <div id="login" class="hidden">

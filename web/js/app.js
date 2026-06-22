@@ -3,29 +3,24 @@
 
   function $(id) { return document.getElementById(id); }
 
-  // --------------------------------------------------------------------------
-  // Session id: from ?session= in the URL, else localStorage, else generated.
-  // It is reflected back into the URL so the page is bookmarkable / shareable,
-  // and persisted in localStorage so a plain refresh resumes the same shell.
-  // --------------------------------------------------------------------------
-  function resolveSessionId() {
-    const url = new URL(window.location.href);
-    let id = url.searchParams.get('session') || localStorage.getItem('rs_session') || '';
-    id = id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
-    if (!id) {
-      id = (crypto.randomUUID ? crypto.randomUUID() : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2));
-      id = id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
-    }
-    localStorage.setItem('rs_session', id);
-    if (url.searchParams.get('session') !== id) {
-      url.searchParams.set('session', id);
-      window.history.replaceState({}, '', url.toString());
-    }
-    return id;
-  }
-
-  const sessionId = resolveSessionId();
   let token = localStorage.getItem('rs_token') || '';
+
+  // --------------------------------------------------------------------------
+  // Multi-terminal state. Each tab is a server-side persistent session keyed by
+  // sid; the server is the source of truth (GET /api/sessions), so any device
+  // logged in as the same user sees the same tabs. We keep ONE xterm + ONE
+  // WebSocket and reconnect when switching tabs — the server replays the
+  // session's scrollback from its ring buffer on attach, so switching is
+  // seamless.
+  // --------------------------------------------------------------------------
+  let sessions = [];   // [{id,title,createdAt,lastActive,attached,cols,rows}]
+  let activeSid = (localStorage.getItem('rs_active') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  let pendingTitle = ''; // title sent on the next WS connect (used when creating)
+
+  function newSid() {
+    const id = (crypto.randomUUID ? crypto.randomUUID() : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+    return id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  }
 
   // --------------------------------------------------------------------------
   // Terminal. The frontend owns all scrollback (50k lines) and renders on the
@@ -69,18 +64,19 @@
 
   function setStatus(state, text) {
     const el = $('status');
-    el.className = 'status status-' + state;
-    el.textContent = text;
+    el.className = 'status-dot status-' + state;
+    el.title = text;
   }
 
   function wsUrl() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const params = new URLSearchParams({
       token: token,
-      session: sessionId,
+      session: activeSid,
       cols: String(term.cols),
       rows: String(term.rows),
     });
+    if (pendingTitle) params.set('title', pendingTitle);
     return proto + '//' + location.host + '/ws?' + params.toString();
   }
 
@@ -91,15 +87,23 @@
     send('1', JSON.stringify({ cmd: 'resize', cols: term.cols, rows: term.rows }));
   }
 
+  // connGen rises on every connect(). A socket's handlers no-op once a newer
+  // connection supersedes them, so switching tabs (close old, open new) can't
+  // leave a stale socket auto-reconnecting.
+  let connGen = 0;
+
   function connect() {
     if (!token) { showLogin(); return; }
+    if (!activeSid) return;
     clearTimeout(reconnectTimer);
     setStatus('connecting', 'connecting…');
     intentionalClose = false;
+    const myGen = ++connGen;
+    const sock = new WebSocket(wsUrl());
+    ws = sock;
 
-    ws = new WebSocket(wsUrl());
-
-    ws.onopen = function () {
+    sock.onopen = function () {
+      if (myGen !== connGen) { try { sock.close(); } catch (e) {} return; }
       reconnectDelay = 1000;
       setStatus('on', 'online');
       // The server dumps the session's scrollback buffer right after connect,
@@ -109,7 +113,8 @@
       term.focus();
     };
 
-    ws.onmessage = function (ev) {
+    sock.onmessage = function (ev) {
+      if (myGen !== connGen) return;
       const msg = typeof ev.data === 'string' ? ev.data : '';
       const op = msg[0];
       const body = msg.slice(1);
@@ -122,27 +127,37 @@
       }
     };
 
-    ws.onclose = async function () {
+    sock.onclose = async function () {
+      if (myGen !== connGen) return; // superseded by a newer connection
       setStatus('off', 'offline');
       if (intentionalClose) return;
       // Distinguish "token expired" from "network blip" before retrying.
       const ok = await verifyToken();
+      if (myGen !== connGen) return;
       if (!ok) { showLogin(); return; }
       setStatus('connecting', 'reconnecting…');
       reconnectTimer = setTimeout(connect, reconnectDelay);
       reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
     };
 
-    ws.onerror = function () { /* onclose handles the retry */ };
+    sock.onerror = function () { /* onclose handles the retry */ };
   }
 
   function handleEvent(m) {
     if (m.event === 'session') {
-      $('session-label').textContent = (m.isNew ? 'new · ' : 'resumed · ') + sessionId;
+      // A session was (re)attached; clear the create-title and resync the tabs
+      // (a freshly created session now exists server-side).
+      pendingTitle = '';
+      fetchSessions();
     } else if (m.event === 'error') {
       term.write('\r\n\x1b[31m[remote-shell] ' + (m.message || 'error') + '\x1b[0m\r\n');
     } else if (m.event === 'ended') {
       term.write('\r\n\x1b[33m[remote-shell] session ended\x1b[0m\r\n');
+      intentionalClose = true; // the PTY is gone; don't auto-reconnect to it
+      const dead = activeSid;
+      sessions = sessions.filter(function (s) { return s.id !== dead; });
+      renderTabs();
+      switchToAny();
     }
   }
 
@@ -157,6 +172,122 @@
     } catch (e) {
       return true; // network error: keep trying, don't bounce to login
     }
+  }
+
+  // --------------------------------------------------------------------------
+  // Tabs / sessions. The server (GET /api/sessions) is the source of truth, so
+  // a second device sees the same tab list; we keep one xterm + one WS and
+  // reconnect when switching. Functions are hoisted declarations so ordering
+  // among them (and vs. connect/showLogin) doesn't matter.
+  // --------------------------------------------------------------------------
+  async function fetchSessions() {
+    if (!token) return;
+    try {
+      const r = await fetch('/api/sessions', { headers: { Authorization: 'Bearer ' + token } });
+      if (r.status === 401) { token = ''; localStorage.removeItem('rs_token'); showLogin(); return; }
+      if (!r.ok) return;
+      const data = await r.json();
+      sessions = Array.isArray(data.sessions) ? data.sessions : [];
+      renderTabs();
+    } catch (e) { /* keep the last known tabs on a network blip */ }
+  }
+
+  function renderTabs() {
+    const wrap = $('tabs');
+    wrap.textContent = '';
+    sessions.forEach(function (s) {
+      const tab = document.createElement('div');
+      tab.className = 'tab' + (s.id === activeSid ? ' active' : '');
+      tab.onclick = function () { switchTo(s.id); };
+      const label = document.createElement('span');
+      label.className = 'tab-label';
+      label.textContent = s.title || 'shell';
+      const close = document.createElement('button');
+      close.className = 'tab-close';
+      close.innerHTML = '&times;';
+      close.title = 'Close terminal';
+      close.onclick = function (e) { e.stopPropagation(); deleteSession(s.id); };
+      tab.appendChild(label);
+      tab.appendChild(close);
+      wrap.appendChild(tab);
+    });
+    const add = document.createElement('button');
+    add.id = 'tab-add';
+    add.innerHTML = '&plus;';
+    add.title = 'New terminal';
+    add.onclick = function () { createSession(); };
+    wrap.appendChild(add);
+  }
+
+  function switchTo(sid) {
+    if (!sid || sid === activeSid) { term.focus(); return; }
+    activeSid = sid;
+    localStorage.setItem('rs_active', sid);
+    pendingTitle = '';
+    intentionalClose = true;
+    if (ws) { try { ws.close(); } catch (e) {} }
+    reconnectDelay = 1000;
+    term.reset();
+    renderTabs();
+    connect();
+  }
+
+  // switchToAny picks a remaining tab after the active one is closed/ended, or
+  // creates a fresh terminal if none are left.
+  function switchToAny() {
+    if (sessions.some(function (s) { return s.id === activeSid; })) return;
+    if (sessions.length) {
+      activeSid = ''; // force switchTo to proceed
+      switchTo(sessions[sessions.length - 1].id);
+    } else {
+      createSession();
+    }
+  }
+
+  function nextShellName() {
+    let max = 0;
+    sessions.forEach(function (s) {
+      const m = /^Shell (\d+)$/.exec(s.title || '');
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return 'Shell ' + (max + 1);
+  }
+
+  function createSession() {
+    const sid = newSid();
+    pendingTitle = nextShellName();
+    // Optimistically add the tab; the server creates the PTY on connect and the
+    // 'session' event triggers a fetchSessions() that reconciles the list.
+    sessions.push({ id: sid, title: pendingTitle, createdAt: Date.now() });
+    activeSid = '';
+    switchTo(sid);
+  }
+
+  async function deleteSession(sid) {
+    if (!confirm('Close this terminal? Its running processes will be killed.')) return;
+    const wasActive = sid === activeSid;
+    if (wasActive) { intentionalClose = true; if (ws) { try { ws.close(); } catch (e) {} } }
+    try {
+      await fetch('/api/sessions?id=' + encodeURIComponent(sid), {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + token },
+      });
+    } catch (e) { /* still drop it locally */ }
+    sessions = sessions.filter(function (s) { return s.id !== sid; });
+    renderTabs();
+    if (wasActive) switchToAny();
+  }
+
+  async function boot() {
+    await fetchSessions();
+    if (!sessions.length) { createSession(); return; }
+    // Honor the saved active tab if it still exists, else the most recent.
+    if (!sessions.some(function (s) { return s.id === activeSid; })) {
+      activeSid = sessions[sessions.length - 1].id;
+    }
+    localStorage.setItem('rs_active', activeSid);
+    renderTabs();
+    connect();
   }
 
   // --------------------------------------------------------------------------
@@ -204,7 +335,7 @@
       token = data.token;
       localStorage.setItem('rs_token', token);
       hideLogin();
-      connect();
+      boot();
     } catch (err) {
       errEl.textContent = 'Login failed: ' + err.message;
       errEl.classList.remove('hidden');
@@ -225,50 +356,115 @@
     document.body.classList.toggle('light', themeName === 'light');
   }
 
+  // copyText prefers the async Clipboard API but falls back to a hidden textarea
+  // + execCommand, which is the only thing that works over plain HTTP (where
+  // navigator.clipboard is undefined). This is what makes the Copy button work
+  // on a non-HTTPS deployment.
+  function copyText(text) {
+    if (!text) return Promise.resolve();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () { execCopy(text); });
+    }
+    execCopy(text);
+    return Promise.resolve();
+  }
+  function execCopy(text) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) { /* ignore */ }
+  }
+
   async function copySelection() {
     const sel = term.getSelection();
     if (!sel) return;
-    try { await navigator.clipboard.writeText(sel); } catch (e) { /* ignore */ }
-    term.focus();
-  }
-  async function pasteClipboard() {
-    try {
-      const t = await navigator.clipboard.readText();
-      if (t) send('0', t);
-    } catch (e) { /* clipboard may be blocked; user can use Ctrl/Cmd+V */ }
+    await copyText(sel);
     term.focus();
   }
 
-  $('btn-font-inc').onclick = function () { fontSize = Math.min(fontSize + 1, 40); applyFont(); };
-  $('btn-font-dec').onclick = function () { fontSize = Math.max(fontSize - 1, 8); applyFont(); };
-  $('btn-theme').onclick = function () { themeName = themeName === 'dark' ? 'light' : 'dark'; applyTheme(); };
-  $('btn-copy').onclick = copySelection;
-  $('btn-paste').onclick = pasteClipboard;
-  $('btn-clear').onclick = function () { term.clear(); term.focus(); };
-  $('btn-reconnect').onclick = function () {
-    if (ws) { intentionalClose = true; try { ws.close(); } catch (e) {} }
-    reconnectDelay = 1000;
-    connect();
+  async function pasteClipboard() {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      try {
+        const t = await navigator.clipboard.readText();
+        if (t) send('0', t);
+        term.focus();
+        return;
+      } catch (e) { /* permission denied / unavailable: fall through to overlay */ }
+    }
+    openPasteOverlay();
+  }
+
+  // Manual paste overlay: the reliable cross-browser fallback when the Clipboard
+  // API can't read (HTTP, or permission denied). Supports multi-line pastes.
+  function openPasteOverlay() {
+    const ta = $('paste-text');
+    ta.value = '';
+    $('paste-overlay').classList.remove('hidden');
+    ta.focus();
+  }
+  function closePasteOverlay() {
+    $('paste-overlay').classList.add('hidden');
+    term.focus();
+  }
+  $('paste-cancel').onclick = closePasteOverlay;
+  $('paste-send').onclick = function () {
+    const v = $('paste-text').value;
+    if (v) send('0', v);
+    closePasteOverlay();
   };
-  $('btn-disconnect').onclick = function () {
-    intentionalClose = true;
-    if (ws) { try { ws.close(); } catch (e) {} }
-    setStatus('off', 'disconnected');
+
+  // Paste stays a top-level button (mobile-friendly); everything secondary lives
+  // in the ⋯ overflow menu so the toolbar never wraps to two rows.
+  $('btn-paste').onclick = function () { closeMenu(); pasteClipboard(); };
+
+  const MENU_ACTIONS = {
+    copy: copySelection,
+    clear: function () { term.clear(); term.focus(); },
+    'font-dec': function () { fontSize = Math.max(fontSize - 1, 8); applyFont(); },
+    'font-inc': function () { fontSize = Math.min(fontSize + 1, 40); applyFont(); },
+    theme: function () { themeName = themeName === 'dark' ? 'light' : 'dark'; applyTheme(); },
+    reconnect: function () {
+      if (ws) { intentionalClose = true; try { ws.close(); } catch (e) {} }
+      reconnectDelay = 1000;
+      connect();
+    },
+    disconnect: function () {
+      intentionalClose = true;
+      if (ws) { try { ws.close(); } catch (e) {} }
+      setStatus('off', 'disconnected');
+    },
+    kill: function () { deleteSession(activeSid); },
+    logout: function () {
+      // Token is a stateless HMAC token, so logout just discards it client-side.
+      intentionalClose = true;
+      if (ws) { try { ws.close(); } catch (e) {} }
+      token = '';
+      localStorage.removeItem('rs_token');
+      showLogin();
+    },
   };
-  $('btn-kill').onclick = function () {
-    if (!confirm('Terminate the persistent session? Running processes will be killed.')) return;
-    send('1', JSON.stringify({ cmd: 'kill' }));
-    intentionalClose = true;
-    localStorage.removeItem('rs_session');
-  };
-  $('btn-logout').onclick = function () {
-    // Token is a stateless HMAC token, so logout just discards it client-side.
-    intentionalClose = true;
-    if (ws) { try { ws.close(); } catch (e) {} }
-    token = '';
-    localStorage.removeItem('rs_token');
-    showLogin();
-  };
+
+  const menu = $('menu');
+  function closeMenu() { menu.classList.add('hidden'); }
+  $('btn-menu').onclick = function (e) { e.stopPropagation(); menu.classList.toggle('hidden'); };
+  menu.addEventListener('click', function (e) {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    closeMenu();
+    const act = MENU_ACTIONS[b.getAttribute('data-act')];
+    if (act) act();
+  });
+  document.addEventListener('click', function (e) {
+    if (!menu.classList.contains('hidden') && !$('menu-wrap').contains(e.target)) closeMenu();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenu(); });
 
   // Ctrl/Cmd+Shift+C / V for copy / paste (don't steal a plain Ctrl+C — that's SIGINT).
   term.attachCustomKeyEventHandler(function (e) {
@@ -358,40 +554,77 @@
   }
 
   // --------------------------------------------------------------------------
-  // Mobile helper keys
+  // Mobile helper keys — two tiers. Row 1 holds the essentials and is always
+  // visible; row 2 (extras) is revealed by the ⌄ toggle. Keys flex to fill the
+  // row width, so nothing needs horizontal scrolling.
   // --------------------------------------------------------------------------
-  const keybar = $('keybar');
+  const row1 = $('keybar-row1');
+  const row2 = $('keybar-row2');
 
-  // Modifier buttons (left side of the bar). preventDefault on mousedown keeps
-  // focus on the terminal so the soft keyboard stays open while arming a modifier.
-  [['Ctrl', 'ctrl'], ['Shift', 'shift'], ['Alt', 'alt']].forEach(function (m) {
+  // Modifier button. preventDefault on mousedown keeps focus on the terminal so
+  // the soft keyboard stays open while arming a modifier.
+  function addMod(parent, label, name) {
     const b = document.createElement('button');
-    b.textContent = m[0];
+    b.textContent = label;
     b.className = 'mod';
     b.addEventListener('mousedown', function (e) { e.preventDefault(); });
-    b.addEventListener('click', function (e) { e.preventDefault(); toggleMod(m[1]); term.focus(); });
-    modBtns[m[1]] = b;
-    keybar.appendChild(b);
-  });
-
-  // [label, sequence, raw?] — raw keys are pre-baked control codes that bypass
-  // the modifier transform; the rest flow through sendKey so modifiers apply.
-  const KEYS = [
-    ['Esc', '\x1b'], ['Tab', '\t'],
-    ['^C', '\x03', true], ['^D', '\x04', true], ['^Z', '\x1a', true],
-    ['↑', '\x1b[A'], ['↓', '\x1b[B'], ['←', '\x1b[D'], ['→', '\x1b[C'],
-    ['|', '|'], ['~', '~'], ['/', '/'], ['-', '-'],
-  ];
-  KEYS.forEach(function (k) {
+    b.addEventListener('click', function (e) { e.preventDefault(); toggleMod(name); term.focus(); });
+    modBtns[name] = b;
+    parent.appendChild(b);
+  }
+  // raw keys are pre-baked control codes that bypass the modifier transform; the
+  // rest flow through sendKey so latched/locked modifiers apply.
+  function addKey(parent, label, seq, raw) {
     const b = document.createElement('button');
-    b.textContent = k[0];
+    b.textContent = label;
+    b.addEventListener('mousedown', function (e) { e.preventDefault(); });
     b.addEventListener('click', function (e) {
       e.preventDefault();
-      if (k[2]) send('0', k[1]); else sendKey(k[1]);
+      if (raw) send('0', seq); else sendKey(seq);
       term.focus();
     });
-    keybar.appendChild(b);
+    parent.appendChild(b);
+  }
+
+  addKey(row1, 'Esc', '\x1b');
+  addKey(row1, 'Tab', '\t');
+  addMod(row1, 'Ctrl', 'ctrl');
+  addKey(row1, '^C', '\x03', true);
+  addKey(row1, '←', '\x1b[D');
+  addKey(row1, '↑', '\x1b[A');
+  addKey(row1, '↓', '\x1b[B');
+  addKey(row1, '→', '\x1b[C');
+
+  // Expand / collapse toggle for the extras row (persisted).
+  const expandBtn = document.createElement('button');
+  expandBtn.id = 'kb-expand';
+  let kbExpanded = localStorage.getItem('rs_kb_expanded') === '1';
+  function applyKbExpanded() {
+    row2.classList.toggle('hidden', !kbExpanded);
+    expandBtn.textContent = kbExpanded ? '⌃' : '⌄'; // ⌃ / ⌄
+    expandBtn.title = kbExpanded ? 'Fewer keys' : 'More keys';
+  }
+  expandBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
+  expandBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    kbExpanded = !kbExpanded;
+    localStorage.setItem('rs_kb_expanded', kbExpanded ? '1' : '0');
+    applyKbExpanded();
+    doFit(); // the terminal height changed
+    term.focus();
   });
+  row1.appendChild(expandBtn);
+
+  addMod(row2, 'Shift', 'shift');
+  addMod(row2, 'Alt', 'alt');
+  addKey(row2, '^D', '\x04', true);
+  addKey(row2, '^Z', '\x1a', true);
+  addKey(row2, '|', '|');
+  addKey(row2, '~', '~');
+  addKey(row2, '/', '/');
+  addKey(row2, '-', '-');
+
+  applyKbExpanded();
   if (window.matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
 
   // --------------------------------------------------------------------------
@@ -418,7 +651,7 @@
   // --------------------------------------------------------------------------
   applyTheme();
   if (token) {
-    verifyToken().then(function (ok) { if (ok) connect(); else showLogin(); });
+    verifyToken().then(function (ok) { if (ok) boot(); else showLogin(); });
   } else {
     showLogin();
   }
