@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.gradle
+npm-debug.log
+.git
+.gitignore
+.env
+*.md
+**/logs
+**/*.tsbuildinfo

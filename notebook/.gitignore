@@ -1,0 +1,7 @@
+node_modules/
+dist/
+logs/
+captures/
+.env
+*.log
+npm-debug.log*

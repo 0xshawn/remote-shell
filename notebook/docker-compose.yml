@@ -1,0 +1,51 @@
+services:
+  notebook:
+    build: .
+    image: notebook:latest
+    container_name: notebook
+    restart: unless-stopped
+    environment:
+      # --- app login (the notebook web UI) ---
+      AUTH_USER: ${AUTH_USER:-admin}
+      AUTH_PASS: ${AUTH_PASS:-changeme}
+      # A STABLE secret keeps login tokens valid across restarts:  openssl rand -hex 32
+      TOKEN_SECRET: ${TOKEN_SECRET:-please-change-this-secret}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # --- Run the shell + claude on the HOST as your user (over SSH) ---
+      # The container SSHes back to the host via host.docker.internal, so the
+      # shell tab AND the claude child use YOUR real host environment and config
+      # instead of the container's. SSH_KEY is a key generated inside the
+      # container (persisted in the notebook-home volume); its public key must be
+      # in the host user's ~/.ssh/authorized_keys. Leave SSH_HOST empty to fall
+      # back to a plain in-container shell + claude.
+      SSH_HOST: ${SSH_HOST-host.docker.internal}
+      SSH_USER: ${SSH_USER-youruser}
+      SSH_PORT: ${SSH_PORT:-22}
+      SSH_KEY: ${SSH_KEY-/home/notebook/.ssh/id_hostshell}
+
+      # --- Claude launch profile (claude runs on the host via SSH) ---
+      # CLAUDE_BIN : absolute path to the host's claude (its dir is added to PATH
+      #              so a co-located node, e.g. an nvm install, is found).
+      # CLAUDE_CWD : host working directory for new claude sessions.
+      # CLAUDE_ENV : extra env for the claude child; set CLAUDE_CONFIG_DIR here to
+      #              reuse your host claude config + auth (KEY=VAL, space-separated).
+      CLAUDE_BIN: ${CLAUDE_BIN-claude}
+      CLAUDE_CWD: ${CLAUDE_CWD-/home/notebook/work}
+      CLAUDE_ENV: ${CLAUDE_ENV-}
+      CLAUDE_PERMISSION_MODE: ${CLAUDE_PERMISSION_MODE:-acceptEdits}
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Published on 0.0.0.0 so the app is reachable by IP (HTTP, no TLS):
+    #   http://<host-ip>:<NOTEBOOK_PORT>
+    ports:
+      - "${NOTEBOOK_PORT:-7682}:7682"
+
+    volumes:
+      # Persist the home dir (holds the generated container->host SSH key).
+      - notebook-home:/home/notebook
+
+volumes:
+  notebook-home:

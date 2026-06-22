@@ -12,6 +12,7 @@ by **tmux** on the server.
 |------|---------|-------------|
 | [`server/`](server/) | **remote-shell** | Node.js server + web (xterm.js) frontend, tmux-backed session persistence. See [`server/README.md`](server/README.md). |
 | [`android/`](android/) | **remote-shell-android** | Native Android client (Kotlin + Jetpack Compose, Termux terminal emulator) that speaks the same login API and WebSocket protocol. See [`android/README.md`](android/README.md). |
+| [`notebook/`](notebook/) | **notebook** | Jupyter-style web client for **Claude Code**: a tmux shell plus Claude sessions rendered as structured notebooks (Node server + React/Vite frontend, driven by `claude` stream-json). See [`notebook/README.md`](notebook/README.md). |
 
 ## Quick start
 

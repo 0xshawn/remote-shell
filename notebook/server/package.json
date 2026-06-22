@@ -1,0 +1,24 @@
+{
+  "name": "notebook-server",
+  "version": "1.0.0",
+  "description": "Jupyter-style web client for Claude Code (server): tmux shell + claude stream-json notebook sessions",
+  "license": "MIT",
+  "main": "src/server.js",
+  "bin": {
+    "notebook": "src/server.js"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "express": "^4.19.2",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  }
+}
