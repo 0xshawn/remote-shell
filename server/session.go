@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -24,6 +26,27 @@ func sanitize(s string) string {
 	s = unsafeKeyChars.ReplaceAllString(s, "")
 	if len(s) > 64 {
 		s = s[:64]
+	}
+	return s
+}
+
+// sanitizeTitle bounds a user-supplied tab title: trim, drop control chars,
+// cap length. It is only ever rendered via textContent client-side, so this is
+// about sanity (and key safety is handled separately by sanitize on the sid).
+func sanitizeTitle(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	if utf8.RuneCountInString(s) > 32 {
+		r := []rune(s)
+		s = string(r[:32])
+	}
+	if s == "" {
+		s = "shell"
 	}
 	return s
 }
@@ -119,8 +142,12 @@ func (c *conn) close() {
 // ---------------------------------------------------------------------------
 
 type session struct {
-	key string
-	mgr *manager
+	key       string
+	user      string
+	sid       string
+	title     string
+	createdAt time.Time
+	mgr       *manager
 
 	ptmx *os.File
 	cmd  *exec.Cmd
@@ -135,7 +162,7 @@ type session struct {
 	ended      bool
 }
 
-func (m *manager) newSession(key string, cols, rows uint16) (*session, error) {
+func (m *manager) newSession(key, user, sid, title string, cols, rows uint16) (*session, error) {
 	name, args := m.cfg.commandFor()
 	cmd := exec.Command(name, args...)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
@@ -154,6 +181,10 @@ func (m *manager) newSession(key string, cols, rows uint16) (*session, error) {
 
 	s := &session{
 		key:        key,
+		user:       user,
+		sid:        sid,
+		title:      sanitizeTitle(title),
+		createdAt:  time.Now(),
 		mgr:        m,
 		ptmx:       ptmx,
 		cmd:        cmd,
@@ -299,8 +330,9 @@ func newManager(cfg *config) *manager {
 }
 
 // getOrCreate returns the session for (user, sid), creating it if absent.
+// title is only used when creating; existing sessions keep their title.
 // The bool reports whether it was newly created.
-func (m *manager) getOrCreate(user, sid string, cols, rows uint16) (*session, bool, error) {
+func (m *manager) getOrCreate(user, sid, title string, cols, rows uint16) (*session, bool, error) {
 	key := sessionKey(user, sid)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -310,7 +342,7 @@ func (m *manager) getOrCreate(user, sid string, cols, rows uint16) (*session, bo
 	if m.cfg.maxSessions > 0 && len(m.sessions) >= m.cfg.maxSessions {
 		return nil, false, errMaxSessions
 	}
-	s, err := m.newSession(key, cols, rows)
+	s, err := m.newSession(key, user, sid, title, cols, rows)
 	if err != nil {
 		return nil, false, err
 	}
@@ -322,6 +354,63 @@ func (m *manager) remove(key string) {
 	m.mu.Lock()
 	delete(m.sessions, key)
 	m.mu.Unlock()
+}
+
+// sessionInfo is the per-session metadata returned by GET /api/sessions, so any
+// device logged in as the same user can render the full tab list.
+type sessionInfo struct {
+	ID         string `json:"id"` // the sid
+	Title      string `json:"title"`
+	CreatedAt  int64  `json:"createdAt"`  // unix millis
+	LastActive int64  `json:"lastActive"` // unix millis
+	Attached   bool   `json:"attached"`   // a client is currently subscribed
+	Cols       int    `json:"cols"`
+	Rows       int    `json:"rows"`
+}
+
+// list returns the user's sessions, oldest first (stable tab order). Ownership
+// is matched on the stored user field, not a key prefix, to avoid one user's id
+// being a prefix of another's.
+func (m *manager) list(user string) []sessionInfo {
+	m.mu.Lock()
+	var sessions []*session
+	for _, s := range m.sessions {
+		if s.user == user {
+			sessions = append(sessions, s)
+		}
+	}
+	m.mu.Unlock()
+
+	out := make([]sessionInfo, 0, len(sessions))
+	for _, s := range sessions {
+		s.mu.Lock()
+		out = append(out, sessionInfo{
+			ID:         s.sid,
+			Title:      s.title,
+			CreatedAt:  s.createdAt.UnixMilli(),
+			LastActive: s.lastActive.UnixMilli(),
+			Attached:   s.sub != nil,
+			Cols:       int(s.cols),
+			Rows:       int(s.rows),
+		})
+		s.mu.Unlock()
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
+	return out
+}
+
+// killSession terminates one of the user's sessions by sid. Returns false if no
+// matching session exists (so the caller can report 404).
+func (m *manager) killSession(user, sid string) bool {
+	key := sessionKey(user, sid)
+	m.mu.Lock()
+	s, ok := m.sessions[key]
+	m.mu.Unlock()
+	if !ok || s.user != user {
+		return false
+	}
+	s.kill()
+	return true
 }
 
 // reap kills sessions that have been detached and idle past the timeout.

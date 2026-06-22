@@ -23,15 +23,85 @@ body.light { background: #ffffff; color: #222; }
 }
 body.light #toolbar { background: #f3f3f3; border-color: #ddd; }
 
-#toolbar .spacer {
+/* ---------- tab strip ---------- */
+#tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 1 1 auto;
-  font-size: 12px;
-  color: #888;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
-#toolbar .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+#tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 160px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #2d2d2e;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 13px;
+  user-select: none;
+}
+.tab:hover { background: #37373a; }
+.tab.active { background: #0e639c; border-color: #1177bb; color: #fff; }
+.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-close {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+.tab-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.15); }
+#tab-add { flex: 0 0 auto; padding: 5px 9px; font-size: 15px; line-height: 1; }
+body.light .tab { background: #ececec; color: #333; border-color: #ccc; }
+body.light .tab.active { background: #0e639c; color: #fff; border-color: #0e639c; }
+
+/* ---------- overflow menu ---------- */
+#btn-paste { flex: 0 0 auto; }
+#menu-wrap { position: relative; flex: 0 0 auto; }
+#btn-menu { font-size: 16px; line-height: 1; padding: 5px 10px; }
+#menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 6px;
+  gap: 2px;
+  background: #252526;
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+#menu button {
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 9px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+#menu button:hover { background: #37373a; }
+#menu button.danger { background: transparent; color: #f48771; }
+#menu button.danger:hover { background: #6e1f1f; color: #fff; }
+body.light #menu { background: #fff; border-color: #ddd; }
+body.light #menu button:hover { background: #ececec; }
 
 button {
   background: #3a3d41;
@@ -47,11 +117,11 @@ button.danger { background: #6e1f1f; border-color: #8a2a2a; }
 button.danger:hover { background: #8a2a2a; }
 body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
 
-/* ---------- status pill ---------- */
-.status { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
-.status-on { background: #1f6e2e; color: #fff; }
-.status-off { background: #6e1f1f; color: #fff; }
-.status-connecting { background: #8a6d1f; color: #fff; }
+/* ---------- status dot ---------- */
+.status-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: #6e1f1f; }
+.status-on { background: #2ea043; }
+.status-off { background: #6e1f1f; }
+.status-connecting { background: #b08800; }
 
 /* ---------- terminal ---------- */
 /* xterm owns the scrollback now (no tmux), so leave touch gestures to the
@@ -59,19 +129,22 @@ body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
 #terminal { flex: 1 1 auto; min-height: 0; padding: 4px 6px; }
 .xterm { height: 100%; }
 
-/* ---------- mobile helper keys ---------- */
+/* ---------- mobile helper keys (two tiers) ---------- */
 #keybar { display: none; }
 body.touch #keybar {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   padding: 6px;
-  overflow-x: auto;
   background: #252526;
   border-top: 1px solid #333;
   flex: 0 0 auto;
-  -webkit-overflow-scrolling: touch;
 }
-body.touch #keybar button { flex: 0 0 auto; min-width: 46px; padding: 10px; font-size: 15px; }
+body.light #keybar { background: #f3f3f3; border-color: #ddd; }
+#keybar-row1, #keybar-row2 { display: flex; gap: 6px; }
+/* Keys flex to fill the row, so nothing needs horizontal scrolling. */
+body.touch #keybar button { flex: 1 1 0; min-width: 34px; padding: 10px 4px; font-size: 15px; }
+#kb-expand { flex: 0 0 auto; min-width: 44px; }
 
 /* Modifier-key states: latched = mild accent, locked = strong accent + ring. */
 body.touch #keybar button.mod.latched {
@@ -121,7 +194,48 @@ body.touch #keybar button.mod.locked {
 #login-form button { padding: 10px; font-size: 15px; background: #0e639c; border-color: #0e639c; color: #fff; }
 #login-form .error { color: #f48771; font-size: 13px; margin: 0; text-align: center; }
 
+/* ---------- paste fallback overlay ---------- */
+#paste-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#paste-box {
+  background: #252526;
+  padding: 20px;
+  border-radius: 8px;
+  width: 380px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+#paste-box h3 { margin: 0; color: #eee; }
+#paste-box .hint { margin: 0; font-size: 12px; color: #999; }
+#paste-text {
+  height: 120px;
+  resize: vertical;
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #1e1e1e;
+  color: #eee;
+  font-size: 16px; /* >=16px stops iOS Safari zooming on focus */
+  font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+.paste-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.paste-actions .primary { background: #0e639c; border-color: #0e639c; color: #fff; }
+body.light #paste-box { background: #fff; }
+body.light #paste-box h3 { color: #222; }
+body.light #paste-text { background: #fff; color: #222; }
+
 @media (max-width: 640px) {
-  #toolbar .btns button { padding: 6px 7px; font-size: 12px; }
-  #toolbar .spacer { display: none; }
+  #toolbar { gap: 6px; padding: 6px 8px; }
+  .tab { max-width: 120px; font-size: 12px; }
+  #btn-paste { padding: 5px 8px; }
 }
