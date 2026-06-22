@@ -75,7 +75,7 @@ func parseConfig() *config {
 	sshUser := fs.String("ssh-user", envOr("SSH_USER", ""), "SSH username (required with --ssh-host)")
 	sshPort := fs.Int("ssh-port", envOrInt("SSH_PORT", 22), "SSH port")
 	sshKey := fs.String("ssh-key", envOr("SSH_KEY", ""), "SSH private key path (omit for password/agent auth)")
-	timeout := fs.Int("timeout", envOrInt("SESSION_TIMEOUT", 0), "reap a detached+idle session after N minutes (0 = never)")
+	timeout := fs.Int("timeout", envOrInt("SESSION_TIMEOUT", 20160), "reap a detached+idle session after N minutes (default 20160 = 14 days; 0 = never)")
 	maxSessions := fs.Int("max-sessions", envOrInt("MAX_SESSIONS", 0), "cap concurrent sessions (0 = unlimited)")
 	ringBytes := fs.Int("ring-bytes", envOrInt("RING_BYTES", 2*1024*1024), "per-session scrollback buffer size in bytes")
 	webDir := fs.String("web-dir", envOr("WEB_DIR", "./web"), "directory of static frontend assets")

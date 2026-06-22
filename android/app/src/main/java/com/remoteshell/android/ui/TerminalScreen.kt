@@ -1,9 +1,8 @@
 package com.remoteshell.android.ui
 
 import android.view.KeyEvent
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -58,6 +57,9 @@ fun TerminalScreen(
     onDisconnect: () -> Unit,
     onKill: () -> Unit,
     onLogout: () -> Unit,
+    onChangeFont: (Boolean) -> Unit,
+    onClearScreen: () -> Unit,
+    onToggleTheme: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = remember {
@@ -75,7 +77,10 @@ fun TerminalScreen(
 
     Scaffold(
         topBar = {
-            TerminalTopBar(state, onReconnect, onDisconnect, onKill, onLogout) { controller.showKeyboard() }
+            TerminalTopBar(
+                state, onReconnect, onDisconnect, onKill, onLogout,
+                onChangeFont, onClearScreen, onToggleTheme,
+            ) { controller.showKeyboard() }
         },
     ) { padding ->
         Column(
@@ -89,7 +94,7 @@ fun TerminalScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .background(Color.Black),
+                    .background(if (state.darkTheme) Color(0xFF1E1E1E) else Color.White),
             )
             KeyBar(controller, state.modifiers)
         }
@@ -104,6 +109,9 @@ private fun TerminalTopBar(
     onDisconnect: () -> Unit,
     onKill: () -> Unit,
     onLogout: () -> Unit,
+    onChangeFont: (Boolean) -> Unit,
+    onClearScreen: () -> Unit,
+    onToggleTheme: () -> Unit,
     onShowKeyboard: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -124,6 +132,8 @@ private fun TerminalTopBar(
             }
         },
         actions = {
+            IconButton(onClick = { onChangeFont(false) }) { Text("A-", fontSize = 16.sp) }
+            IconButton(onClick = { onChangeFont(true) }) { Text("A+", fontSize = 16.sp) }
             IconButton(onClick = onShowKeyboard) {
                 Icon(Icons.Filled.Keyboard, contentDescription = "Keyboard")
             }
@@ -131,6 +141,11 @@ private fun TerminalTopBar(
                 Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text(if (state.darkTheme) "Light theme" else "Dark theme") },
+                    onClick = { menu = false; onToggleTheme() },
+                )
+                DropdownMenuItem(text = { Text("Clear screen") }, onClick = { menu = false; onClearScreen() })
                 DropdownMenuItem(text = { Text("Reconnect") }, onClick = { menu = false; onReconnect() })
                 DropdownMenuItem(text = { Text("Disconnect") }, onClick = { menu = false; onDisconnect() })
                 DropdownMenuItem(text = { Text("Kill session") }, onClick = { menu = false; onKill() })
@@ -140,7 +155,6 @@ private fun TerminalTopBar(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun KeyBar(controller: SessionController, mods: Modifiers) {
     Surface(color = MaterialTheme.colorScheme.surface) {
@@ -153,17 +167,17 @@ private fun KeyBar(controller: SessionController, mods: Modifiers) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ModButton("Ctrl", mods.ctrl, { controller.toggleCtrl() }, { controller.lockMod("ctrl") })
-            ModButton("Alt", mods.alt, { controller.toggleAlt() }, { controller.lockMod("alt") })
-            ModButton("Shift", mods.shift, { controller.toggleShift() }, { controller.lockMod("shift") })
+            ModButton("Ctrl", mods.ctrl) { controller.toggleCtrl() }
+            ModButton("Alt", mods.alt) { controller.toggleAlt() }
+            ModButton("Shift", mods.shift) { controller.toggleShift() }
             KeyButton("Esc") { controller.sendKeyCode(KeyEvent.KEYCODE_ESCAPE) }
             KeyButton("Tab") { controller.sendKeyCode(KeyEvent.KEYCODE_TAB) }
             KeyButton("^C") { controller.writeBytes(byteArrayOf(3)) }
             KeyButton("^D") { controller.writeBytes(byteArrayOf(4)) }
             KeyButton("^Z") { controller.writeBytes(byteArrayOf(26)) }
-            KeyButton("←") { controller.sendKeyCode(KeyEvent.KEYCODE_DPAD_LEFT) }
-            KeyButton("↓") { controller.sendKeyCode(KeyEvent.KEYCODE_DPAD_DOWN) }
             KeyButton("↑") { controller.sendKeyCode(KeyEvent.KEYCODE_DPAD_UP) }
+            KeyButton("↓") { controller.sendKeyCode(KeyEvent.KEYCODE_DPAD_DOWN) }
+            KeyButton("←") { controller.sendKeyCode(KeyEvent.KEYCODE_DPAD_LEFT) }
             KeyButton("→") { controller.sendKeyCode(KeyEvent.KEYCODE_DPAD_RIGHT) }
             KeyButton("Home") { controller.sendKeyCode(KeyEvent.KEYCODE_MOVE_HOME) }
             KeyButton("End") { controller.sendKeyCode(KeyEvent.KEYCODE_MOVE_END) }
@@ -186,9 +200,8 @@ private fun KeyButton(label: String, onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ModButton(label: String, stateValue: Int, onTap: () -> Unit, onLock: () -> Unit) {
+private fun ModButton(label: String, stateValue: Int, onTap: () -> Unit) {
     val bg = when (stateValue) {
         2 -> MaterialTheme.colorScheme.primary // locked
         1 -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) // latched
@@ -197,7 +210,7 @@ private fun ModButton(label: String, stateValue: Int, onTap: () -> Unit, onLock:
     Surface(
         color = bg,
         shape = RoundedCornerShape(6.dp),
-        modifier = Modifier.combinedClickable(onClick = onTap, onLongClick = onLock),
+        modifier = Modifier.clickable(onClick = onTap),
     ) {
         Text(
             label,

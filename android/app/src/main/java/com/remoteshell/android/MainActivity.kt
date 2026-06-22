@@ -24,9 +24,11 @@ class MainActivity : ComponentActivity() {
         // Edge-to-edge so Compose receives IME insets and the keybar floats above the keyboard.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
-            RemoteShellTheme {
+            val vm: MainViewModel = viewModel()
+            val state by vm.state.collectAsState()
+            RemoteShellTheme(darkTheme = state.darkTheme) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AppRoot(viewModel())
+                    AppRoot(vm, state)
                 }
             }
         }
@@ -34,8 +36,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AppRoot(vm: MainViewModel) {
-    val state by vm.state.collectAsState()
+private fun AppRoot(vm: MainViewModel, state: UiState) {
     when {
         state.booting -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
@@ -59,6 +60,9 @@ private fun AppRoot(vm: MainViewModel) {
                     onDisconnect = vm::disconnect,
                     onKill = vm::killSession,
                     onLogout = vm::logout,
+                    onChangeFont = vm::changeFont,
+                    onClearScreen = vm::clearScreen,
+                    onToggleTheme = vm::toggleTheme,
                 )
             }
         }

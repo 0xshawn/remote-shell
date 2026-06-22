@@ -129,7 +129,7 @@ echo "from=\"172.16.0.0/12\" $PUB" >> ~/.ssh/authorized_keys
 | `--token-secret` | `TOKEN_SECRET` | *(random)* | Secret for signing tokens — set a stable one in prod |
 | `--ssl-key` / `--ssl-cert` | `SSL_KEY` / `SSL_CERT` | – | Enable built-in HTTPS |
 | `--ssh-host/user/port/key` | `SSH_*` | – | SSH into the host instead of a local shell |
-| `--timeout` | `SESSION_TIMEOUT` | `0` | Reap a detached+idle session after N minutes (0 = never) |
+| `--timeout` | `SESSION_TIMEOUT` | `20160` | Reap a detached+idle session after N minutes (default 20160 = 14 days; 0 = never) |
 | `--max-sessions` | `MAX_SESSIONS` | `0` | Cap concurrent sessions (0 = unlimited) |
 | `--ring-bytes` | `RING_BYTES` | `2097152` | Per-session scrollback buffer (bytes) |
 | `--web-dir` | `WEB_DIR` | `./web` | Static frontend directory |

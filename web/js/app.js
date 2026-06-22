@@ -619,6 +619,8 @@
   addMod(row2, 'Alt', 'alt');
   addKey(row2, '^D', '\x04', true);
   addKey(row2, '^Z', '\x1a', true);
+  addKey(row2, 'Home', '\x1b[H');
+  addKey(row2, 'End', '\x1b[F');
   addKey(row2, '|', '|');
   addKey(row2, '~', '~');
   addKey(row2, '/', '/');

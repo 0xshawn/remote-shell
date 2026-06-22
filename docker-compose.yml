@@ -20,7 +20,7 @@ services:
       # A STABLE secret keeps login tokens valid across restarts. Generate with:
       #   openssl rand -hex 32
       TOKEN_SECRET: ${TOKEN_SECRET:-please-change-this-secret}
-      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-0}   # minutes a detached+idle session survives (0 = forever)
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-20160}   # minutes a detached+idle session survives (default 20160 = 14 days; 0 = forever)
       RING_BYTES: ${RING_BYTES:-2097152}       # per-session scrollback buffer (bytes)
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # --- Log into the HOST instead of the container's own shell. ---

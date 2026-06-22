@@ -32,6 +32,7 @@ data class UiState(
     val saveCredentials: Boolean = false,
     val loggingIn: Boolean = false,
     val loginError: String? = null,
+    val darkTheme: Boolean = true,
 )
 
 /**
@@ -50,6 +51,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             username = prefs.username,
             password = prefs.password,
             saveCredentials = prefs.saveCredentials,
+            darkTheme = prefs.darkTheme,
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -132,6 +134,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Toolbar actions ----
     fun reconnect() = controller?.reconnect()
     fun disconnect() = controller?.disconnect()
+    fun changeFont(increase: Boolean) = controller?.changeFontSize(increase)
+    fun clearScreen() = controller?.clearScreen()
+
+    /** Flip the dark/light terminal theme, persist it, and repaint the live emulator. */
+    fun toggleTheme() {
+        val dark = !_state.value.darkTheme
+        prefs.darkTheme = dark
+        controller?.applyTerminalTheme(dark)
+        _state.update { it.copy(darkTheme = dark) }
+    }
 
     fun killSession() {
         controller?.killSession()

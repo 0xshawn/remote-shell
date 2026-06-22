@@ -33,6 +33,16 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_SAVE_CREDS, false)
         set(value) = sp.edit().putBoolean(KEY_SAVE_CREDS, value).apply()
 
+    /** Terminal font size in pixels, persisted so it survives a relaunch (like the web client). */
+    var fontSize: Int
+        get() = sp.getInt(KEY_FONT_PX, DEFAULT_FONT_PX)
+        set(value) = sp.edit().putInt(KEY_FONT_PX, value).apply()
+
+    /** Dark/light terminal theme; defaults to dark to match the web client's default. */
+    var darkTheme: Boolean
+        get() = sp.getBoolean(KEY_DARK_THEME, true)
+        set(value) = sp.edit().putBoolean(KEY_DARK_THEME, value).apply()
+
     /** Persist or clear the login form fields according to [save]. */
     fun storeCredentials(serverUrl: String, username: String, password: String, save: Boolean) {
         saveCredentials = save
@@ -71,6 +81,11 @@ class Prefs(context: Context) {
         private const val KEY_PASS = "password"
         private const val KEY_SAVE_CREDS = "save_credentials"
         private const val KEY_SESSION = "session_id"
+        private const val KEY_FONT_PX = "font_px"
+        private const val KEY_DARK_THEME = "dark_theme"
+
+        /** Default terminal font size in px (the SessionController font baseline). */
+        private const val DEFAULT_FONT_PX = 32
 
         fun sanitizeSessionId(raw: String): String =
             raw.replace(Regex("[^A-Za-z0-9_-]"), "").take(64)

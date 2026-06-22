@@ -1,5 +1,6 @@
 package com.remoteshell.android.term
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Handler
@@ -15,6 +16,7 @@ import com.remoteshell.android.net.ShellWebSocket
 import com.termux.terminal.KeyHandler
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
+import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
 import kotlinx.coroutines.CoroutineScope
@@ -29,7 +31,7 @@ import java.nio.charset.StandardCharsets
 enum class ConnStatus { OFFLINE, CONNECTING, ONLINE, ENDED }
 
 /** Sticky modifier state for the on-screen helper keys: 0=released, 1=latched, 2=locked. */
-data class Modifiers(val ctrl: Int = 0, val alt: Int = 0, val shift: Int = 0, val fn: Int = 0)
+data class Modifiers(val ctrl: Int = 0, val alt: Int = 0, val shift: Int = 0)
 
 /**
  * Bridges the [ShellWebSocket] to a Termux [TerminalView]/[TerminalSession]:
@@ -64,15 +66,18 @@ class SessionController(
     private var reconnectDelayMs = 1000L
 
     // Modifier state machine, mirrored to the UI so the keybar can highlight latched/locked.
-    private val mods = Modifiers()
     private var ctrl = 0
     private var alt = 0
     private var shift = 0
-    private var fn = 0
+    private var lastCtrlTap = 0L
+    private var lastAltTap = 0L
+    private var lastShiftTap = 0L
     var onModifiersChanged: (Modifiers) -> Unit = {}
 
-    var fontSizePx = DEFAULT_FONT_PX
+    var fontSizePx = prefs.fontSize
         private set
+
+    private var darkTheme = prefs.darkTheme
 
     // ---- View attach/detach (called from the Composable) -------------------------------
 
@@ -102,6 +107,7 @@ class SessionController(
             val cellW = (fontSizePx * 0.6f).toInt().coerceAtLeast(1)
             session.initializeEmulator(cols, rows, cellW, cellH)
         }
+        applyTerminalTheme(darkTheme)
         onStatus(ConnStatus.CONNECTING)
         socket.connect(prefs.serverUrl, prefs.token, prefs.sessionId, cols, rows, wsListener)
     }
@@ -245,39 +251,64 @@ class SessionController(
         return mod
     }
 
-    fun toggleCtrl() { ctrl = nextModState(ctrl); emitMods() }
-    fun toggleAlt() { alt = nextModState(alt); emitMods() }
-    fun toggleShift() { shift = nextModState(shift); emitMods() }
-    fun toggleFn() { fn = nextModState(fn); emitMods() }
-
-    /** Single tap: released->latched->released. (Double-tap to lock is handled in the UI.) */
-    private fun nextModState(s: Int): Int = if (s == 0) 1 else 0
-
-    fun lockMod(which: String) {
-        when (which) {
-            "ctrl" -> ctrl = if (ctrl == 2) 0 else 2
-            "alt" -> alt = if (alt == 2) 0 else 2
-            "shift" -> shift = if (shift == 2) 0 else 2
-            "fn" -> fn = if (fn == 2) 0 else 2
-        }
-        emitMods()
+    fun toggleCtrl() {
+        val now = System.currentTimeMillis()
+        ctrl = nextSticky(ctrl, now - lastCtrlTap); lastCtrlTap = now; emitMods()
     }
+    fun toggleAlt() {
+        val now = System.currentTimeMillis()
+        alt = nextSticky(alt, now - lastAltTap); lastAltTap = now; emitMods()
+    }
+    fun toggleShift() {
+        val now = System.currentTimeMillis()
+        shift = nextSticky(shift, now - lastShiftTap); lastShiftTap = now; emitMods()
+    }
+
+    /**
+     * Three-state sticky toggle, mirroring the web client (app.js toggleMod):
+     *   single tap -> latch (0<->1); a second tap within 300ms -> lock (0<->2).
+     */
+    private fun nextSticky(state: Int, sinceLastTapMs: Long): Int =
+        if (sinceLastTapMs < DOUBLE_TAP_MS) (if (state == 2) 0 else 2)
+        else (if (state == 0) 1 else 0)
 
     private fun clearLatched() {
         if (ctrl == 1) ctrl = 0
         if (alt == 1) alt = 0
         if (shift == 1) shift = 0
-        if (fn == 1) fn = 0
         emitMods()
     }
 
-    private fun emitMods() = onModifiersChanged(Modifiers(ctrl, alt, shift, fn))
+    private fun emitMods() = onModifiersChanged(Modifiers(ctrl, alt, shift))
 
     // ---- Font size ---------------------------------------------------------------------
 
     fun changeFontSize(increase: Boolean) {
         fontSizePx = (fontSizePx + if (increase) 2 else -2).coerceIn(MIN_FONT_PX, MAX_FONT_PX)
+        prefs.fontSize = fontSizePx
         view?.setTextSize(fontSizePx)
+    }
+
+    /** Apply the web client's dark/light terminal palette to the live emulator and repaint. */
+    fun applyTerminalTheme(dark: Boolean) {
+        darkTheme = dark
+        val colors = session.emulator?.mColors?.mCurrentColors ?: return
+        if (dark) {
+            colors[TextStyle.COLOR_INDEX_BACKGROUND] = 0xff1e1e1e.toInt()
+            colors[TextStyle.COLOR_INDEX_FOREGROUND] = 0xffd4d4d4.toInt()
+            colors[TextStyle.COLOR_INDEX_CURSOR] = 0xffffffff.toInt()
+        } else {
+            colors[TextStyle.COLOR_INDEX_BACKGROUND] = 0xffffffff.toInt()
+            colors[TextStyle.COLOR_INDEX_FOREGROUND] = 0xff1e1e1e.toInt()
+            colors[TextStyle.COLOR_INDEX_CURSOR] = 0xff000000.toInt()
+        }
+        view?.onScreenUpdated()
+    }
+
+    /** Clear the local scrollback (like the web client's term.clear()); the live shell is untouched. */
+    fun clearScreen() {
+        session.emulator?.screen?.clearTranscript()
+        view?.onScreenUpdated()
     }
 
     fun showKeyboard() {
@@ -304,7 +335,11 @@ class SessionController(
     override fun onTextChanged(changedSession: TerminalSession) { view?.onScreenUpdated() }
     override fun onTitleChanged(changedSession: TerminalSession) {}
     override fun onSessionFinished(finishedSession: TerminalSession) {}
-    override fun onCopyTextToClipboard(session: TerminalSession, text: String?) {}
+    override fun onCopyTextToClipboard(session: TerminalSession, text: String?) {
+        val t = text ?: return
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        cm.setPrimaryClip(ClipData.newPlainText("remote-shell", t))
+    }
     override fun onPasteTextFromClipboard(session: TerminalSession?) {}
     override fun onBell(session: TerminalSession) {}
     override fun onColorsChanged(session: TerminalSession) {}
@@ -336,7 +371,7 @@ class SessionController(
     override fun readControlKey(): Boolean = ctrl > 0
     override fun readAltKey(): Boolean = alt > 0
     override fun readShiftKey(): Boolean = shift > 0
-    override fun readFnKey(): Boolean = fn > 0
+    override fun readFnKey(): Boolean = false
 
     override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: TerminalSession): Boolean {
         clearLatched() // a key was consumed; release single-tap modifiers
@@ -345,6 +380,7 @@ class SessionController(
 
     override fun onEmulatorSet() {
         view?.setTerminalCursorBlinkerState(true, true)
+        applyTerminalTheme(darkTheme)
     }
 
     // ---- Logging (quiet by default) ----------------------------------------------------
@@ -360,9 +396,9 @@ class SessionController(
     companion object {
         private const val TAG = "SessionController"
         private const val TRANSCRIPT_ROWS = 10_000
-        private const val DEFAULT_FONT_PX = 32
         private const val MIN_FONT_PX = 16
         private const val MAX_FONT_PX = 96
         private const val CURSOR_BLINK_MS = 500
+        private const val DOUBLE_TAP_MS = 300L
     }
 }
