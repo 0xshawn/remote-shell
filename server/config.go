@@ -1,0 +1,147 @@
+package main
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"flag"
+	"os"
+	"strconv"
+)
+
+type config struct {
+	port              int
+	host              string
+	shell             string
+	cwd               string
+	authEnabled       bool
+	username          string
+	password          string
+	generatedPassword bool
+	tokenSecret       string
+	sslKey            string
+	sslCert           string
+	sshHost           string
+	sshUser           string
+	sshPort           int
+	sshKey            string
+	timeoutMin        int
+	maxSessions       int
+	ringBytes         int
+	webDir            string
+	logLevel          string
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func envOrInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// parseConfig mirrors the flags/env of the archived Node server (config.js),
+// plus --ring-bytes and --web-dir which replace tmux-specific options.
+func parseConfig() *config {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/"
+	}
+
+	fs := flag.NewFlagSet("remote-shell", flag.ExitOnError)
+	port := fs.Int("port", envOrInt("PORT", 7681), "HTTP(S) listen port")
+	host := fs.String("host", envOr("HOST", "0.0.0.0"), "listen address")
+	shell := fs.String("shell", envOr("SHELL_PATH", envOr("SHELL", "/bin/bash")), "shell to launch (local mode)")
+	cwd := fs.String("cwd", envOr("WORK_DIR", home), "initial working directory for NEW local sessions")
+	username := fs.String("username", envOr("AUTH_USER", "admin"), "auth username")
+	password := fs.String("password", envOr("AUTH_PASS", ""), "auth password (auto-generated if empty)")
+	tokenSecret := fs.String("token-secret", envOr("TOKEN_SECRET", ""), "secret used to sign session tokens")
+	sslKey := fs.String("ssl-key", envOr("SSL_KEY", ""), "TLS private key (enables built-in HTTPS)")
+	sslCert := fs.String("ssl-cert", envOr("SSL_CERT", ""), "TLS certificate (enables built-in HTTPS)")
+	sshHost := fs.String("ssh-host", envOr("SSH_HOST", ""), "SSH into this host instead of a local shell")
+	sshUser := fs.String("ssh-user", envOr("SSH_USER", ""), "SSH username (required with --ssh-host)")
+	sshPort := fs.Int("ssh-port", envOrInt("SSH_PORT", 22), "SSH port")
+	sshKey := fs.String("ssh-key", envOr("SSH_KEY", ""), "SSH private key path (omit for password/agent auth)")
+	timeout := fs.Int("timeout", envOrInt("SESSION_TIMEOUT", 0), "reap a detached+idle session after N minutes (0 = never)")
+	maxSessions := fs.Int("max-sessions", envOrInt("MAX_SESSIONS", 0), "cap concurrent sessions (0 = unlimited)")
+	ringBytes := fs.Int("ring-bytes", envOrInt("RING_BYTES", 2*1024*1024), "per-session scrollback buffer size in bytes")
+	webDir := fs.String("web-dir", envOr("WEB_DIR", "./web"), "directory of static frontend assets")
+	logLevel := fs.String("log-level", envOr("LOG_LEVEL", "info"), "log level: error|warn|info|debug")
+	noAuth := fs.Bool("no-auth", false, "disable authentication (DANGEROUS, local dev only)")
+	_ = fs.Parse(os.Args[1:])
+
+	authEnabled := !*noAuth
+
+	pass := *password
+	generated := false
+	if authEnabled && pass == "" {
+		// Jupyter-style: print a generated password on boot when none is set.
+		pass = randHex(9)
+		generated = true
+	}
+
+	secret := *tokenSecret
+	if secret == "" {
+		// A random secret invalidates existing tokens on every restart; set a
+		// stable TOKEN_SECRET in production to keep logins alive across restarts.
+		secret = randHex(32)
+	}
+
+	return &config{
+		port:              *port,
+		host:              *host,
+		shell:             *shell,
+		cwd:               *cwd,
+		authEnabled:       authEnabled,
+		username:          *username,
+		password:          pass,
+		generatedPassword: generated,
+		tokenSecret:       secret,
+		sslKey:            *sslKey,
+		sslCert:           *sslCert,
+		sshHost:           *sshHost,
+		sshUser:           *sshUser,
+		sshPort:           *sshPort,
+		sshKey:            *sshKey,
+		timeoutMin:        *timeout,
+		maxSessions:       *maxSessions,
+		ringBytes:         *ringBytes,
+		webDir:            *webDir,
+		logLevel:          *logLevel,
+	}
+}
+
+// commandFor returns the program + args the PTY should run: either a local
+// shell, or an SSH login to the host (so the web terminal is the host user's
+// shell, not the container's). Mirrors sessionManager.js:command().
+func (c *config) commandFor() (string, []string) {
+	if c.sshHost == "" {
+		return c.shell, nil
+	}
+	args := []string{
+		"-tt",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "ServerAliveInterval=30",
+		"-o", "ServerAliveCountMax=3",
+	}
+	if c.sshPort != 0 && c.sshPort != 22 {
+		args = append(args, "-p", strconv.Itoa(c.sshPort))
+	}
+	if c.sshKey != "" {
+		args = append(args, "-i", c.sshKey)
+	}
+	return "ssh", append(args, c.sshUser+"@"+c.sshHost)
+}

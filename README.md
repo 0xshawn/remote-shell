@@ -3,32 +3,46 @@
 A monorepo for **remote-shell**, a browser-based interactive shell whose defining
 feature is **session persistence**: refresh, close the tab, or switch devices and
 you resume the *exact* same shell — working directory, environment, running
-processes, and history all intact — because every session is transparently backed
-by **tmux** on the server.
+processes, and history all intact.
+
+The server forks a PTY directly and keeps a per-session in-memory **ring buffer**;
+the frontend (xterm.js + WebGL, 50k-line scrollback) owns all scrolling, so it
+stays buttery-smooth and a reconnect repaints the screen from the buffer. No tmux.
+
+```
+Browser (xterm.js + WebGL) ──WebSocket──► Go gateway ──fork──► PTY ──► bash/zsh (or `ssh host`)
+                                              │
+                                     per-session ring buffer  → reconnect repaints
+```
 
 ## Projects
 
 | Path | Project | Description |
 |------|---------|-------------|
-| [`server/`](server/) | **remote-shell** | Node.js server + web (xterm.js) frontend, tmux-backed session persistence. See [`server/README.md`](server/README.md). |
-| [`android/`](android/) | **remote-shell-android** | Native Android client (Kotlin + Jetpack Compose, Termux terminal emulator) that speaks the same login API and WebSocket protocol. See [`android/README.md`](android/README.md). |
+| [`server/`](server/) | **server** | Go gateway: PTY + ring-buffer session persistence, WebSocket wire protocol, auth. See [`server/README.md`](server/README.md). |
+| [`web/`](web/) | **web** | xterm.js + WebGL frontend (no build step; vendored addons). Served by the Go server. |
+| [`android/`](android/) | **android** | Native Android client (Kotlin + Jetpack Compose, Termux terminal emulator) that speaks the same login API and WebSocket protocol. See [`android/README.md`](android/README.md). |
+| [`server.archived/`](server.archived/) | *(archived)* | The previous Node.js + tmux server, kept for reference. |
 
 ## Quick start
 
-**Server** (Docker):
+**Server + web** (Docker, from the repo root):
 
 ```bash
-cd server
-cp .env.example .env   # set AUTH_USER / AUTH_PASS / TOKEN_SECRET
+cp .env.example .env   # set AUTH_USER / AUTH_PASS / TOKEN_SECRET / SSH_USER
 docker compose up -d
+# open https://<host>:8443  (or http://localhost:7681 without nginx)
 ```
 
-Or run it directly:
+By default the web terminal logs into the **host** shell over SSH (not the
+container) — see [`server/README.md`](server/README.md) for the one-time SSH key
+setup and how to switch to a plain container shell.
+
+Run it directly instead (Go ≥ 1.26):
 
 ```bash
-cd server
-npm install
-npm start
+cd server && go build -o remote-shell . && cd ..
+WEB_DIR=web ./server/remote-shell --no-auth
 ```
 
 **Android client:**

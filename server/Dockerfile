@@ -1,34 +1,38 @@
-# ---------- build stage: compile native deps (node-pty) ----------
-FROM node:20-bookworm-slim AS build
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 make g++ ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev && npm cache clean --force
+# Build context is the REPO ROOT (see docker-compose.yml) so we can COPY both
+# the Go server (server/) and the static frontend (web/) into the image.
+
+# ---------- build stage: compile the static Go binary ----------
+FROM golang:1.26-bookworm AS build
+WORKDIR /src
+# Cache module downloads across rebuilds.
+COPY server/go.mod server/go.sum ./
+RUN go mod download
+COPY server/ ./
+# CGO off -> a fully static binary (creack/pty and gorilla/websocket are pure Go).
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /remote-shell .
 
 # ---------- runtime stage ----------
-FROM node:20-bookworm-slim
-ENV NODE_ENV=production
-WORKDIR /app
-
-# tmux = persistence backend; tini = clean PID 1 / signal handling;
-# ncurses-term = provides screen-256color terminfo used inside tmux.
+FROM debian:bookworm-slim
+ENV LANG=C.UTF-8
+# openssh-client: PTY runs `ssh user@host` to reach the HOST shell (not the
+# container's). tini: clean PID 1 / reaps ssh children. ncurses-term: terminfo
+# for the local-shell fallback mode.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tmux tini ncurses-term ca-certificates openssh-client \
+      openssh-client ca-certificates tini ncurses-term \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/node_modules ./node_modules
-COPY package.json ./
-COPY src ./src
-COPY public ./public
-
-# Run as a non-root user with a real home directory.
+# Non-root user with a real home (persisted via the shell-home volume; holds the
+# SSH key used to reach the host).
 RUN useradd -m -u 10001 shell
+
+COPY --from=build /remote-shell /usr/local/bin/remote-shell
+COPY web /web
+ENV WEB_DIR=/web
+
 USER shell
 ENV HOME=/home/shell
 WORKDIR /home/shell
 
 EXPOSE 7681
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node", "/app/src/server.js", "--port", "7681", "--cwd", "/home/shell"]
+CMD ["remote-shell", "--port", "7681"]

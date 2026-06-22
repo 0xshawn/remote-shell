@@ -1,0 +1,2 @@
+# Put your TLS certs here for the nginx service:
+#   fullchain.pem  privkey.pem
