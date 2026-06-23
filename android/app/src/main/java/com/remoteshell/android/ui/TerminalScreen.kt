@@ -1,5 +1,10 @@
 package com.remoteshell.android.ui
 
+import android.content.Context
+import android.graphics.Typeface
+import android.graphics.fonts.Font
+import android.graphics.fonts.FontFamily as GraphicsFontFamily
+import android.os.Build
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -72,6 +77,11 @@ fun TerminalScreen(
 
     DisposableEffect(controller, view) {
         controller.attachView(view)
+        // Must run after attachView (which calls setTextSize and creates the renderer):
+        // setTypeface NPEs if the renderer is null. The bundled symbol font is primary so
+        // U+23F5 (Claude Code's ⏵ indicator) resolves there; all other glyphs fall through
+        // to the system monospace fallback, preserving the monospace look and row height.
+        installSymbolTypeface(context, view)
         onDispose { controller.detachView() }
     }
 
@@ -98,6 +108,24 @@ fun TerminalScreen(
             )
             KeyBar(controller, state.modifiers)
         }
+    }
+}
+
+/**
+ * Install a typeface whose explicit fallback chain reaches the bundled symbol font, so glyphs
+ * like U+23F5 render instead of tofu. The FontFamily/CustomFallbackBuilder APIs need API 29+;
+ * below that we leave MONOSPACE untouched. runCatching guards the (near-impossible) asset load
+ * failure from crashing terminal startup.
+ */
+private fun installSymbolTypeface(context: Context, view: TerminalView) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+    runCatching {
+        val symbolFont = Font.Builder(context.assets, "fonts/SymbolsMedia.ttf").build()
+        val symbolFamily = GraphicsFontFamily.Builder(symbolFont).build()
+        val tf = Typeface.CustomFallbackBuilder(symbolFamily)
+            .setSystemFallback("monospace")
+            .build()
+        view.setTypeface(tf)
     }
 }
 
