@@ -59,3 +59,17 @@ cd android
 ```
 
 Then point the app at your server's URL and log in with the same credentials.
+
+## Uninstall
+
+Removes everything `install.sh` created — containers, the volume (secrets + host
+SSH key), the image, the authorized key, and the checkout:
+
+```bash
+docker compose -f ~/.remote-shell/deploy/docker-compose.yml down -v  # stop containers + drop the volume
+docker image rm remote-shell:latest                                  # remove the built image
+sed -i '/remote-shell-container/d' ~/.ssh/authorized_keys            # revoke the container's host SSH key
+rm -rf ~/.remote-shell                                               # remove the checkout
+```
+
+(Adjust the path if you set `REMOTE_SHELL_DIR`; prefix `sudo` if Docker needs it.)
