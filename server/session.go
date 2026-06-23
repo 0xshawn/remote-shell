@@ -102,6 +102,10 @@ func (c *conn) writeLoop() {
 	for {
 		select {
 		case msg := <-c.out:
+			if msg == nil {
+				c.close() // sentinel: a final frame was flushed, tear down now
+				return
+			}
 			_ = c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			if err := c.ws.WriteMessage(websocket.TextMessage, msg); err != nil {
 				c.close()
@@ -135,6 +139,28 @@ func (c *conn) close() {
 		close(c.closed)
 		_ = c.ws.Close()
 	})
+}
+
+// closeWith enqueues one final message, then closes the connection once that
+// message has been flushed (a nil sentinel through the same ordered out channel).
+// This guarantees the peer actually receives the frame before the socket drops —
+// unlike send()+close(), where close() could win the writeLoop's select and drop
+// the queued frame. Used to tell a superseded subscriber why it is going away.
+func (c *conn) closeWith(msg []byte) {
+	select {
+	case c.out <- msg:
+	case <-c.closed:
+		return
+	default:
+		c.close() // queue full / slow client: drop it rather than block
+		return
+	}
+	select {
+	case c.out <- nil:
+	case <-c.closed:
+	default:
+		c.close()
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -249,8 +275,11 @@ func (s *session) onExit() {
 	s.mgr.remove(s.key)
 }
 
-// attach makes c the sole subscriber and replays the scrollback to it.
-// "Last tab wins": any previous subscriber is dropped.
+// attach makes c the sole subscriber and replays the scrollback to it. "Last
+// attach wins": if another connection (a second device/tab on the same session)
+// was subscribed, it is told via a "superseded" event and its socket is then
+// closed, so it steps aside instead of auto-reconnecting and ping-ponging with
+// this one over the single subscriber slot.
 func (s *session) attach(c *conn, cols, rows uint16) {
 	s.mu.Lock()
 	prev := s.sub
@@ -260,15 +289,17 @@ func (s *session) attach(c *conn, cols, rows uint16) {
 		_ = pty.Setsize(s.ptmx, &pty.Winsize{Cols: cols, Rows: rows})
 	}
 	// Enqueue the snapshot under the lock so it lands before any live data that
-	// a concurrent feed() might push to the new subscriber.
-	if snap := s.ring.Snapshot(); len(snap) > 0 {
+	// a concurrent feed() might push to the new subscriber. Strip terminal query
+	// sequences first: a stale query replayed from scrollback would make xterm
+	// auto-reply into the live shell as garbage (see stripQueries).
+	if snap := stripQueries(s.ring.Snapshot()); len(snap) > 0 {
 		c.send(dataFrame(snap))
 	}
 	s.lastActive = time.Now()
 	s.mu.Unlock()
 
 	if prev != nil && prev != c {
-		prev.close()
+		prev.closeWith(eventFrame(map[string]any{"event": "superseded"}))
 	}
 }
 
@@ -472,4 +503,80 @@ func seqLen(lead byte) int {
 	default:
 		return 1
 	}
+}
+
+// ---------------------------------------------------------------------------
+// stripQueries removes terminal *query* sequences from replayed scrollback:
+// OSC color queries (e.g. "ESC ] 11 ; ? ST", which asks for the background
+// color) and CSI device reports (DSR "...n" / DA "...c"). During live output a
+// query is answered in real time by the program that emitted it, but the same
+// bytes sitting in the ring buffer have no program waiting when a client
+// re-attaches — xterm would auto-reply and the reply ("11;rgb:1e1e/1e1e/1e1e",
+// "0n", "?1;2c", …) lands on the shell's command line as garbage. The queries
+// draw nothing, so dropping them from the replay is visually lossless.
+// ---------------------------------------------------------------------------
+
+func stripQueries(b []byte) []byte {
+	out := make([]byte, 0, len(b))
+	i := 0
+	for i < len(b) {
+		if b[i] == 0x1b && i+1 < len(b) {
+			switch b[i+1] {
+			case ']': // OSC ... (BEL | ST)
+				end, drop := scanOSC(b, i+2)
+				if !drop {
+					out = append(out, b[i:end]...)
+				}
+				i = end
+				continue
+			case '[': // CSI params... final
+				end, final := scanCSI(b, i+2)
+				if final != 'n' && final != 'c' { // DSR / DA are report requests
+					out = append(out, b[i:end]...)
+				}
+				i = end
+				continue
+			}
+		}
+		out = append(out, b[i])
+		i++
+	}
+	return out
+}
+
+// scanOSC returns the index just past an OSC sequence beginning at start (the
+// byte after "ESC ]") and whether it is a color query that should be dropped.
+// Only the "?" query form of OSC 4/5/10–19 is dropped; the set form (e.g.
+// "ESC ] 11 ; rgb:… ST") and unrelated OSCs (titles, hyperlinks) are kept.
+func scanOSC(b []byte, start int) (end int, drop bool) {
+	ps := -1
+	for d := start; d < len(b) && b[d] >= '0' && b[d] <= '9'; d++ {
+		if ps < 0 {
+			ps = 0
+		}
+		ps = ps*10 + int(b[d]-'0')
+	}
+	colorQuery := ps == 4 || ps == 5 || (ps >= 10 && ps <= 19)
+	var last byte
+	for i := start; i < len(b); i++ {
+		switch {
+		case b[i] == 0x07: // BEL terminator
+			return i + 1, colorQuery && last == '?'
+		case b[i] == 0x1b && i+1 < len(b) && b[i+1] == '\\': // ST = ESC \
+			return i + 2, colorQuery && last == '?'
+		}
+		last = b[i]
+	}
+	return len(b), colorQuery && last == '?' // unterminated (ring boundary)
+}
+
+// scanCSI returns the index just past a CSI sequence beginning at start (the
+// byte after "ESC [") and its final byte (0 if the sequence is truncated).
+func scanCSI(b []byte, start int) (end int, final byte) {
+	for i := start; i < len(b); i++ {
+		if b[i] >= 0x40 && b[i] <= 0x7e { // final byte
+			return i + 1, b[i]
+		}
+	}
+	return len(b), 0
 }
