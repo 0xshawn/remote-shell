@@ -645,6 +645,63 @@
   })();
 
   // --------------------------------------------------------------------------
+  // Touch scroll for full-screen apps. The NORMAL buffer scrolls natively (the
+  // xterm viewport is an overflow container, so a finger drag scrolls
+  // scrollback). Full-screen TUIs (claude code, vim, less) run in the ALTERNATE
+  // buffer, where the viewport has nothing to scroll — they scroll via the mouse
+  // wheel instead. So while in the alternate buffer we translate a one-finger
+  // vertical drag into wheel events on the terminal element: xterm then emits
+  // mouse-wheel sequences (when the app enabled mouse reporting, e.g. claude
+  // code) or arrow keys (alternate-scroll, e.g. less). Gated to the alternate
+  // buffer so native scrollback dragging stays untouched.
+  // --------------------------------------------------------------------------
+  (function () {
+    const el = $('terminal');
+    let tracking = false, lastY = 0, lastX = 0, step = 18;
+
+    function inAlt() {
+      try { return term.buffer.active.type === 'alternate'; } catch (e) { return false; }
+    }
+    // dir: +1 scrolls down (toward newer content), -1 scrolls up. DOM_DELTA_LINE
+    // with deltaY ±1 makes xterm scroll exactly one line/notch per event; the
+    // finger coords keep the mouse report on the right row.
+    function emitWheel(dir) {
+      term.element.dispatchEvent(new WheelEvent('wheel', {
+        deltaY: dir, deltaMode: 1, clientX: lastX, clientY: lastY,
+        bubbles: true, cancelable: true,
+      }));
+    }
+
+    el.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1 || !inAlt()) { tracking = false; return; }
+      tracking = true;
+      lastX = e.touches[0].clientX;
+      lastY = e.touches[0].clientY;
+      // One wheel notch per rendered row of finger travel.
+      step = Math.max(8, Math.round(el.clientHeight / Math.max(term.rows, 1)));
+    }, { passive: true });
+
+    el.addEventListener('touchmove', function (e) {
+      if (!tracking || e.touches.length !== 1) return;
+      e.preventDefault(); // we own the vertical drag in the alternate buffer
+      const x = e.touches[0].clientX, y = e.touches[0].clientY;
+      let dy = lastY - y; // finger up => positive => scroll down (natural)
+      lastX = x;
+      while (Math.abs(dy) >= step) {
+        const dir = dy > 0 ? 1 : -1;
+        lastY = y;
+        emitWheel(dir);
+        dy -= dir * step;
+      }
+      lastY = y + dy; // carry the sub-step remainder into the next move
+    }, { passive: false });
+
+    function stop() { tracking = false; }
+    el.addEventListener('touchend', stop);
+    el.addEventListener('touchcancel', stop);
+  })();
+
+  // --------------------------------------------------------------------------
   // Boot
   // --------------------------------------------------------------------------
   applyTheme();

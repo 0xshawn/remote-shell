@@ -48,6 +48,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// noCache makes browsers revalidate static assets on every load so a redeploy is
+// picked up immediately instead of serving a stale cached app.js/index.html.
+// FileServer still sets Last-Modified, so unchanged files revalidate cheaply (304).
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		h.ServeHTTP(w, r)
+	})
+}
+
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -220,7 +230,7 @@ func main() {
 	mux.HandleFunc("GET /api/sessions", srv.handleSessions)
 	mux.HandleFunc("DELETE /api/sessions", srv.handleSessionDelete)
 	mux.HandleFunc("/ws", srv.handleWS)
-	mux.Handle("/", http.FileServer(http.Dir(cfg.webDir)))
+	mux.Handle("/", noCache(http.FileServer(http.Dir(cfg.webDir))))
 
 	// Idle-session reaper.
 	if cfg.timeoutMin > 0 {
