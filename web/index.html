@@ -32,7 +32,7 @@
     </div>
   </div>
 
-  <div id="terminal"></div>
+  <div id="terminals"></div>
 
   <!-- Helper keys for touch devices. Hidden by default; the toolbar button
        (#kb-fab) toggles the whole panel. All keys live in one wrapping row. -->
@@ -59,8 +59,9 @@
     <form id="login-form">
       <h2>Remote Shell</h2>
       <p id="login-error" class="error hidden"></p>
-      <input id="login-user" type="text" placeholder="Username" autocomplete="username" autocapitalize="off" autocorrect="off" />
-      <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" />
+      <input id="login-user" name="username" type="text" placeholder="Username" autocomplete="username" autocapitalize="off" autocorrect="off" />
+      <input id="login-pass" name="password" type="password" placeholder="Password" autocomplete="current-password" />
+      <label id="login-remember-row"><input id="login-remember" type="checkbox" checked /> Remember me</label>
       <button type="submit">Sign in</button>
     </form>
   </div>
