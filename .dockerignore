@@ -4,10 +4,10 @@
 .gitignore
 .code-review-graph
 .claude
-server.archived
 android
 **/node_modules
 server/remote-shell
 **/*.log
 .env
+deploy/.env
 *.md

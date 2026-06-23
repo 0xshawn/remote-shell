@@ -20,9 +20,9 @@ find_repo() {
 	local src="${BASH_SOURCE[0]:-}" dir
 	if [[ "$src" == */* ]]; then
 		dir=$(cd "$(dirname "$src")" 2>/dev/null && pwd) || dir=""
-		[ -n "$dir" ] && [ -f "$dir/docker-compose.yml" ] && { echo "$dir"; return; }
+		[ -n "$dir" ] && [ -f "$dir/deploy/docker-compose.yml" ] && { echo "$dir"; return; }
 	fi
-	[ -f docker-compose.yml ] && [ -f server/Dockerfile ] && pwd
+	[ -f deploy/docker-compose.yml ] && pwd
 }
 
 repo=$(find_repo || true)
@@ -44,7 +44,8 @@ if [ -z "$repo" ]; then
 	fi
 	exec bash "$DIR/install.sh"
 fi
-cd "$repo"
+# All compose/.env operations happen inside deploy/.
+cd "$repo/deploy"
 
 # --- Decide how to invoke docker: directly, or via sudo when the current user
 # can't reach the docker socket (common when not in the 'docker' group). ---

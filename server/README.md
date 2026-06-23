@@ -94,11 +94,11 @@ redirects). `SERVER_NAME` in `.env` sets the nginx domain (empty = catch-all `_`
 
 - **Pin credentials:** set `AUTH_PASS` / `TOKEN_SECRET` in `.env` — any non-blank
   value is used as-is instead of the generated one.
-- **Real TLS:** drop `fullchain.pem` / `privkey.pem` into `server/nginx/certs/`
+- **Real TLS:** drop `fullchain.pem` / `privkey.pem` into `deploy/nginx/certs/`
   (existing certs are never overwritten). To skip nginx, map `"7681:7681"` on the
   app and drop the `nginx` service.
 - **Plain `docker compose`:** once `.env`, certs, and the host key are in place,
-  `docker compose up -d` works without `install.sh`.
+  `cd deploy && docker compose up -d` works without `install.sh`.
 
 ## Logging into the host instead of the container
 
@@ -173,7 +173,8 @@ auth.go         HMAC-signed tokens + credential check
 session.go      SessionManager + Session (PTY, ring buffer, subscriber, reaper)
 ringbuffer.go   fixed-size circular byte buffer
 logger.go       tiny leveled logger
-Dockerfile, nginx/   container build + optional TLS proxy
+entrypoint.sh   first-boot host SSH key generation
 ```
 
-The frontend lives in the sibling [`web/`](../web/) directory.
+The frontend lives in the sibling [`web/`](../web/) directory; Docker Compose,
+the Dockerfile, and the nginx proxy live in [`deploy/`](../deploy/).
