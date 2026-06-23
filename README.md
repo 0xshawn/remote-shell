@@ -26,17 +26,21 @@ Browser (xterm.js + WebGL) ──WebSocket──► Go gateway ──fork──�
 
 ## Quick start
 
-**Server + web** (Docker, from the repo root):
+**Server + web** (Docker, from the repo root) — one command:
 
 ```bash
-cp .env.example .env   # set AUTH_USER / AUTH_PASS / TOKEN_SECRET / SSH_USER
-docker compose up -d
-# open https://<host>:8443  (or http://localhost:7681 without nginx)
+./deploy.sh
+# open the printed https://<host>:8443  (self-signed cert → accept the warning)
 ```
 
+`deploy.sh` builds the image, creates `.env`, auto-detects your host user,
+generates + persists the secrets, generates a self-signed TLS cert, and
+authorizes the container's SSH key on the host — then prints the login password.
+It is safe to re-run.
+
 By default the web terminal logs into the **host** shell over SSH (not the
-container) — see [`server/README.md`](server/README.md) for the one-time SSH key
-setup and how to switch to a plain container shell.
+container). To pin credentials, use real TLS certs, or switch to a plain
+container shell, see [`server/README.md`](server/README.md).
 
 Run it directly instead (Go ≥ 1.26):
 
