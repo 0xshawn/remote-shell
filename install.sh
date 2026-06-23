@@ -9,7 +9,7 @@ set -euo pipefail
 
 REPO_SLUG="0xshawn/remote-shell"
 BRANCH="${REMOTE_SHELL_BRANCH:-main}"
-DIR="${REMOTE_SHELL_DIR:-$HOME/remote-shell}"
+DIR="${REMOTE_SHELL_DIR:-$HOME/.remote-shell}"
 
 echo "remote-shell installer -> $DIR (branch: $BRANCH)"
 

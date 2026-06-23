@@ -33,7 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install.s
 # open the printed https://<host>:8443  (self-signed cert → accept the warning)
 ```
 
-The installer fetches the repo into `~/remote-shell` (override with
+The installer fetches the repo into `~/.remote-shell` (override with
 `REMOTE_SHELL_DIR=`) and runs `deploy.sh`, which builds the image, creates
 `.env`, auto-detects your host user, generates + persists the secrets, generates
 a self-signed TLS cert, and authorizes the container's SSH key on the host —
