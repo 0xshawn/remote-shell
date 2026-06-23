@@ -68,21 +68,37 @@ If you omit `--password`, a random one is generated and printed on startup.
 2. Refresh the browser.
 3. You are still in `top`; `echo $FOO` prints `bar`; cwd is still `/tmp`.
 
-## Docker (from the repo root)
+## Docker
 
-The compose file lives at the repo root and builds the server + bakes in `web/`:
+One command — no clone needed — fetches the repo, builds the server (baking in
+`web/`), starts it behind nginx, wires the host SSH key, and prints the password:
 
 ```bash
-cp .env.example .env        # edit AUTH_USER / AUTH_PASS / TOKEN_SECRET / SSH_USER
-docker compose build
-docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install.sh | bash
+# open the printed https://<host>:8443
 ```
 
-- App listens on `127.0.0.1:7681`; nginx proxies it on `:8443` (HTTP `:8080`
-  redirects). Put TLS certs in `server/nginx/certs/` as `fullchain.pem` /
-  `privkey.pem`. To skip nginx, map `"7681:7681"` and drop the `nginx` service.
-- `SERVER_NAME` in `.env` sets the nginx domain (empty = catch-all `_`).
-- The `shell-home` volume persists the container user's home (and the SSH key).
+From an existing clone, run `./deploy.sh` directly. What either does on a first run:
+
+- Creates `.env` and sets `SSH_USER` to your host user.
+- The server generates + persists `AUTH_PASS` and `TOKEN_SECRET` to the
+  `shell-home` volume (stable across restarts; the password is printed to logs).
+- The container generates its host SSH key on first boot; `deploy.sh` authorizes
+  it in your `~/.ssh/authorized_keys` (idempotent).
+- nginx generates a self-signed TLS cert if none is present.
+
+App listens on `127.0.0.1:7681`; nginx proxies it on `:8443` (HTTP `:8080`
+redirects). `SERVER_NAME` in `.env` sets the nginx domain (empty = catch-all `_`).
+
+### Overrides
+
+- **Pin credentials:** set `AUTH_PASS` / `TOKEN_SECRET` in `.env` — any non-blank
+  value is used as-is instead of the generated one.
+- **Real TLS:** drop `fullchain.pem` / `privkey.pem` into `server/nginx/certs/`
+  (existing certs are never overwritten). To skip nginx, map `"7681:7681"` on the
+  app and drop the `nginx` service.
+- **Plain `docker compose`:** once `.env`, certs, and the host key are in place,
+  `docker compose up -d` works without `deploy.sh`.
 
 ## Logging into the host instead of the container
 
@@ -98,16 +114,14 @@ out of the box via `host.docker.internal`:
 | `SSH_PORT` | `22` | Host SSH port |
 | `SSH_KEY` | `/home/shell/.ssh/id_hostshell` | Private key inside the container |
 
-One-time key setup (key lives in the `shell-home` volume, so it persists):
+`./deploy.sh` does this key setup automatically: the container generates the
+keypair on first boot (see `entrypoint.sh`) and `deploy.sh` authorizes the public
+key in your `~/.ssh/authorized_keys` (scoped to the docker subnet). The key lives
+in the `shell-home` volume, so it persists across container recreation.
+
+If you are **not** using `deploy.sh`, authorize the key by hand:
 
 ```bash
-# 1) generate a keypair inside the container
-docker exec remote-shell sh -c \
-  'mkdir -p ~/.ssh && chmod 700 ~/.ssh && \
-   [ -f ~/.ssh/id_hostshell ] || ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_hostshell -C remote-shell-container; \
-   cat ~/.ssh/id_hostshell.pub'
-
-# 2) authorize that public key on the host (scoped to the docker subnet)
 PUB=$(docker exec remote-shell cat /home/shell/.ssh/id_hostshell.pub)
 mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
 echo "from=\"172.16.0.0/12\" $PUB" >> ~/.ssh/authorized_keys

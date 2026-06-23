@@ -28,11 +28,13 @@ RUN useradd -m -u 10001 shell
 COPY --from=build /remote-shell /usr/local/bin/remote-shell
 COPY web /web
 ENV WEB_DIR=/web
+# Entrypoint auto-generates the host SSH key on first boot (see entrypoint.sh).
+COPY --chmod=0755 server/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 USER shell
 ENV HOME=/home/shell
 WORKDIR /home/shell
 
 EXPOSE 7681
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["remote-shell", "--port", "7681"]

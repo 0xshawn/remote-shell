@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"flag"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type config struct {
@@ -53,6 +55,40 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// persistDir returns $HOME/.remote-shell, creating it (0700) on demand. It lives
+// on the persisted shell-home volume, so values written there survive container
+// recreation. Returns "" when there is no usable home, which makes callers fall
+// back to ephemeral generation.
+func persistDir(home string) string {
+	if home == "" || home == "/" {
+		return ""
+	}
+	dir := filepath.Join(home, ".remote-shell")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return ""
+	}
+	return dir
+}
+
+// loadOrCreate returns the value stored in dir/name, or generates one with gen(),
+// persists it (0600), and returns that. When dir is "" or any I/O fails it just
+// returns gen() without persisting, so auto-managed secrets stay stable across
+// restarts without ever blocking startup.
+func loadOrCreate(dir, name string, gen func() string) string {
+	if dir == "" {
+		return gen()
+	}
+	path := filepath.Join(dir, name)
+	if b, err := os.ReadFile(path); err == nil {
+		if v := strings.TrimSpace(string(b)); v != "" {
+			return v
+		}
+	}
+	v := gen()
+	_ = os.WriteFile(path, []byte(v+"\n"), 0o600)
+	return v
+}
+
 // parseConfig mirrors the flags/env of the archived Node server (config.js),
 // plus --ring-bytes and --web-dir which replace tmux-specific options.
 func parseConfig() *config {
@@ -85,19 +121,25 @@ func parseConfig() *config {
 
 	authEnabled := !*noAuth
 
+	// Auto-managed secrets are persisted here so a zero-config deploy gets stable
+	// credentials/tokens without any manual setup. Explicit env/flag values always
+	// win and are never written.
+	pdir := persistDir(home)
+
 	pass := *password
 	generated := false
 	if authEnabled && pass == "" {
 		// Jupyter-style: print a generated password on boot when none is set.
-		pass = randHex(9)
+		// Persisted so it stays the same across restarts (still printed each boot).
+		pass = loadOrCreate(pdir, "password", func() string { return randHex(9) })
 		generated = true
 	}
 
 	secret := *tokenSecret
 	if secret == "" {
-		// A random secret invalidates existing tokens on every restart; set a
-		// stable TOKEN_SECRET in production to keep logins alive across restarts.
-		secret = randHex(32)
+		// A random secret invalidates existing tokens on every restart; persist a
+		// generated one so logins survive restarts with no manual TOKEN_SECRET.
+		secret = loadOrCreate(pdir, "token_secret", func() string { return randHex(32) })
 	}
 
 	return &config{
