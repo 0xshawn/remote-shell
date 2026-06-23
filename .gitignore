@@ -8,4 +8,4 @@
 .env
 
 # nginx TLS certs (keep the dir, ignore the keys)
-/server/nginx/certs/*.pem
+/deploy/nginx/certs/*.pem

@@ -22,7 +22,7 @@ Browser (xterm.js + WebGL) ──WebSocket──► Go gateway ──fork──�
 | [`server/`](server/) | **server** | Go gateway: PTY + ring-buffer session persistence, WebSocket wire protocol, auth. See [`server/README.md`](server/README.md). |
 | [`web/`](web/) | **web** | xterm.js + WebGL frontend (no build step; vendored addons). Served by the Go server. |
 | [`android/`](android/) | **android** | Native Android client (Kotlin + Jetpack Compose, Termux terminal emulator) that speaks the same login API and WebSocket protocol. See [`android/README.md`](android/README.md). |
-| [`server.archived/`](server.archived/) | *(archived)* | The previous Node.js + tmux server, kept for reference. |
+| [`deploy/`](deploy/) | **deploy** | Docker Compose, Dockerfile, and the nginx TLS proxy. Driven by [`install.sh`](install.sh). |
 
 ## Quick start
 

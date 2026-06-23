@@ -4,14 +4,20 @@
 #   ./install.sh           # builds, wires the host SSH key + TLS, prints the password
 #
 # That auto-creates .env, generates+persists secrets, and authorizes the host SSH
-# key. `docker compose up -d` also works once .env / certs / the SSH key are set up.
-# The web terminal logs into the HOST (via SSH), not the container — see SSH_*.
+# key. From here you can also `docker compose up -d` once .env / certs / the SSH
+# key are set up. The web terminal logs into the HOST (via SSH) — see SSH_*.
+
+# Pin the project name so the volume (and containers) stay the same regardless of
+# the directory compose is invoked from.
+name: remote-shell
 
 services:
   remote-shell:
     build:
-      context: .
-      dockerfile: server/Dockerfile
+      # Build context is the REPO ROOT (one level up) so the image can COPY both
+      # the Go server (server/) and the static frontend (web/).
+      context: ..
+      dockerfile: deploy/Dockerfile
     image: remote-shell:latest
     container_name: remote-shell
     restart: unless-stopped
@@ -47,7 +53,7 @@ services:
 
   # TLS reverse proxy. On first boot it generates a self-signed cert if none is
   # present (see 40-selfsigned.sh); drop real fullchain.pem/privkey.pem into
-  # ./server/nginx/certs to replace it.
+  # ./nginx/certs to replace it.
   nginx:
     image: nginx:alpine
     container_name: remote-shell-nginx
@@ -64,11 +70,11 @@ services:
       - "8080:80"
       - "8443:443"
     volumes:
-      - ./server/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       # Init hook: generates a self-signed cert on first boot if none is present.
-      - ./server/nginx/40-selfsigned.sh:/docker-entrypoint.d/40-selfsigned.sh:ro
+      - ./nginx/40-selfsigned.sh:/docker-entrypoint.d/40-selfsigned.sh:ro
       # Writable so the self-signed cert can be created here on first boot.
-      - ./server/nginx/certs:/etc/nginx/certs
+      - ./nginx/certs:/etc/nginx/certs
 
 volumes:
   shell-home:
