@@ -112,6 +112,7 @@
       intentionalClose: false,
       pendingTitle: '',   // title sent on this pane's next connect (used when creating)
       connected: false,   // whether we've started this pane's connection lifecycle
+      superseded: false,  // another device took over this session; paused until reclaimed
     };
 
     // WebGL renderer: GPU-accelerated, falls back to the default renderer if the
@@ -151,6 +152,11 @@
       }
     });
 
+    // Tapping/clicking a superseded pane takes control back from the other device
+    // (no-op otherwise; reclaim() guards on the flag).
+    el.addEventListener('mousedown', function () { pane.reclaim(); });
+    el.addEventListener('touchstart', function () { pane.reclaim(); }, { passive: true });
+
     // status() only touches the global dot for the active pane, so a background
     // pane's connect/close never flips it.
     pane.status = function (state, text) { if (pane === activePane) setStatus(state, text); };
@@ -178,6 +184,7 @@
     pane.connect = function () {
       if (!token) { showLogin(); return; }
       if (pane.ws && pane.ws.readyState <= WebSocket.OPEN) return; // already connecting/open
+      pane.superseded = false;
       clearTimeout(pane.reconnectTimer);
       pane.status('connecting', 'connecting…');
       pane.intentionalClose = false;
@@ -234,10 +241,31 @@
         fetchSessions();
       } else if (m.event === 'error') {
         term.write('\r\n\x1b[31m[remote-shell] ' + (m.message || 'error') + '\x1b[0m\r\n');
+      } else if (m.event === 'superseded') {
+        // Another device/tab attached to this same session. Step aside instead of
+        // auto-reconnecting; otherwise the two clients ping-pong forever over the
+        // single subscriber slot. The user reclaims by interacting (see reclaim()).
+        pane.superseded = true;
+        pane.intentionalClose = true; // suppress onclose's auto-reconnect
+        pane.connGen++;               // no-op the closing socket's onclose/onmessage
+        clearTimeout(pane.reconnectTimer);
+        if (pane.ws) { try { pane.ws.close(); } catch (e) {} }
+        pane.status('off', 'taken over on another device');
+        term.write('\r\n\x1b[33m[remote-shell] Taken over by another device. Tap or press a key to take back control.\x1b[0m\r\n');
       } else if (m.event === 'ended') {
         pane.intentionalClose = true; // the PTY is gone; don't auto-reconnect to it
         removeSession(pane.sid);
       }
+    };
+
+    // reclaim takes control back after another device superseded this pane. The
+    // newest attach wins server-side, so reconnecting supersedes the other side
+    // in turn. connect() clears the superseded flag.
+    pane.reclaim = function () {
+      if (!pane.superseded) return;
+      pane.reconnectDelay = 1000;
+      pane.connected = true;
+      pane.connect();
     };
 
     pane.dispose = function () {
@@ -700,6 +728,7 @@
 
   function sendKey(data) {
     if (!activePane) return;
+    if (activePane.superseded) { activePane.reclaim(); return; }
     activePane.send('0', applyModifiers(data));
     clearLatched();
   }
