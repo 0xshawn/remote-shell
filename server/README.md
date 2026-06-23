@@ -78,12 +78,12 @@ curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install.s
 # open the printed https://<host>:8443
 ```
 
-From an existing clone, run `./deploy.sh` directly. What either does on a first run:
+From an existing clone, run `./install.sh` directly. What either does on a first run:
 
 - Creates `.env` and sets `SSH_USER` to your host user.
 - The server generates + persists `AUTH_PASS` and `TOKEN_SECRET` to the
   `shell-home` volume (stable across restarts; the password is printed to logs).
-- The container generates its host SSH key on first boot; `deploy.sh` authorizes
+- The container generates its host SSH key on first boot; `install.sh` authorizes
   it in your `~/.ssh/authorized_keys` (idempotent).
 - nginx generates a self-signed TLS cert if none is present.
 
@@ -98,7 +98,7 @@ redirects). `SERVER_NAME` in `.env` sets the nginx domain (empty = catch-all `_`
   (existing certs are never overwritten). To skip nginx, map `"7681:7681"` on the
   app and drop the `nginx` service.
 - **Plain `docker compose`:** once `.env`, certs, and the host key are in place,
-  `docker compose up -d` works without `deploy.sh`.
+  `docker compose up -d` works without `install.sh`.
 
 ## Logging into the host instead of the container
 
@@ -114,12 +114,12 @@ out of the box via `host.docker.internal`:
 | `SSH_PORT` | `22` | Host SSH port |
 | `SSH_KEY` | `/home/shell/.ssh/id_hostshell` | Private key inside the container |
 
-`./deploy.sh` does this key setup automatically: the container generates the
-keypair on first boot (see `entrypoint.sh`) and `deploy.sh` authorizes the public
+`./install.sh` does this key setup automatically: the container generates the
+keypair on first boot (see `entrypoint.sh`) and `install.sh` authorizes the public
 key in your `~/.ssh/authorized_keys` (scoped to the docker subnet). The key lives
 in the `shell-home` volume, so it persists across container recreation.
 
-If you are **not** using `deploy.sh`, authorize the key by hand:
+If you are **not** using `install.sh`, authorize the key by hand:
 
 ```bash
 PUB=$(docker exec remote-shell cat /home/shell/.ssh/id_hostshell.pub)

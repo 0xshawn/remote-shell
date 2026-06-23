@@ -1,7 +1,7 @@
 # Monorepo deployment: builds the Go server + bakes in the web/ frontend, then
 # fronts it with an nginx TLS proxy. For a first deploy just run, from the repo root:
 #
-#   ./deploy.sh            # builds, wires the host SSH key + TLS, prints the password
+#   ./install.sh           # builds, wires the host SSH key + TLS, prints the password
 #
 # That auto-creates .env, generates+persists secrets, and authorizes the host SSH
 # key. `docker compose up -d` also works once .env / certs / the SSH key are set up.
