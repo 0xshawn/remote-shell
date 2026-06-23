@@ -35,7 +35,9 @@
 
   const term = new Terminal({
     cursorBlink: true,
-    fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace',
+    // "SymbolsMedia" is first but unicode-range-scoped to U+23F5, so it only wins
+    // for that glyph; "Cascadia Code" (bundled webfont) is the real terminal face.
+    fontFamily: '"SymbolsMedia", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace',
     fontSize: fontSize,
     scrollback: 50000,
     theme: THEMES[themeName],
@@ -53,6 +55,21 @@
   } catch (e) { /* WebGL unavailable: xterm uses its canvas/DOM fallback */ }
   fitAddon.fit();
   term.focus();
+
+  // Cascadia Code is a bundled webfont; xterm caches glyph cell metrics when it
+  // opens, so if the font hasn't loaded yet the first paint uses fallback metrics.
+  // Once both weights load, round-trip the font size to force a re-measure with the
+  // real font, then refit so columns/rows are correct.
+  if (document.fonts && document.fonts.load) {
+    Promise.all([
+      document.fonts.load(fontSize + 'px "Cascadia Code"'),
+      document.fonts.load('bold ' + fontSize + 'px "Cascadia Code"'),
+    ]).then(function () {
+      term.options.fontSize = fontSize + 1;
+      term.options.fontSize = fontSize;
+      fitAddon.fit();
+    }).catch(function () { /* font load failed: keep fallback metrics */ });
+  }
 
   // --------------------------------------------------------------------------
   // WebSocket connection + auto-reconnect
@@ -645,26 +662,34 @@
   })();
 
   // --------------------------------------------------------------------------
-  // Touch scroll for full-screen apps. The NORMAL buffer scrolls natively (the
-  // xterm viewport is an overflow container, so a finger drag scrolls
-  // scrollback). Full-screen TUIs (claude code, vim, less) run in the ALTERNATE
-  // buffer, where the viewport has nothing to scroll — they scroll via the mouse
-  // wheel instead. So while in the alternate buffer we translate a one-finger
-  // vertical drag into wheel events on the terminal element: xterm then emits
-  // mouse-wheel sequences (when the app enabled mouse reporting, e.g. claude
-  // code) or arrow keys (alternate-scroll, e.g. less). Gated to the alternate
-  // buffer so native scrollback dragging stays untouched.
+  // Touch scroll. We own one-finger vertical drags entirely (CSS sets
+  // touch-action: none on the terminal, so the browser never hijacks the drag)
+  // and route each notch of finger travel by what the running program wants:
+  //   - If the app has mouse reporting on (claude code, vim, htop, …) OR runs in
+  //     the alternate buffer, dispatch a wheel event on the terminal element:
+  //     xterm forwards a mouse-wheel/arrow sequence and the APP scrolls its own
+  //     view, keeping its status line in place. We must NOT scroll xterm's
+  //     scrollback for these apps — that only smears their in-place redraws and
+  //     drags their status line off-screen.
+  //   - Otherwise (a plain shell) scroll xterm's own scrollback via scrollLines().
+  // Doing this in JS (not native viewport panning) is what makes it work on mobile.
   // --------------------------------------------------------------------------
   (function () {
     const el = $('terminal');
     let tracking = false, lastY = 0, lastX = 0, step = 18;
 
-    function inAlt() {
-      try { return term.buffer.active.type === 'alternate'; } catch (e) { return false; }
+    // 'app' (forward the wheel to the program) or 'scrollback' (scroll xterm's
+    // own history). The decision lives in chooseScrollTarget (scroll-routing.js)
+    // so it can be unit tested; here we just read the live xterm state.
+    function scrollTarget() {
+      let mode = 'none', buf = 'normal';
+      try { mode = term.modes.mouseTrackingMode; } catch (e) { /* keep 'none' */ }
+      try { buf = term.buffer.active.type; } catch (e) { /* keep 'normal' */ }
+      return chooseScrollTarget(mode, buf);
     }
-    // dir: +1 scrolls down (toward newer content), -1 scrolls up. DOM_DELTA_LINE
-    // with deltaY ±1 makes xterm scroll exactly one line/notch per event; the
-    // finger coords keep the mouse report on the right row.
+    // dir: +1 scrolls toward newer content, -1 toward older. DOM_DELTA_LINE with
+    // deltaY ±1 makes xterm emit exactly one wheel notch; the finger coords keep
+    // the mouse report on the right row.
     function emitWheel(dir) {
       term.element.dispatchEvent(new WheelEvent('wheel', {
         deltaY: dir, deltaMode: 1, clientX: lastX, clientY: lastY,
@@ -673,24 +698,25 @@
     }
 
     el.addEventListener('touchstart', function (e) {
-      if (e.touches.length !== 1 || !inAlt()) { tracking = false; return; }
+      if (e.touches.length !== 1) { tracking = false; return; }
       tracking = true;
       lastX = e.touches[0].clientX;
       lastY = e.touches[0].clientY;
-      // One wheel notch per rendered row of finger travel.
+      // One wheel notch / scrollback line per rendered row of finger travel.
       step = Math.max(8, Math.round(el.clientHeight / Math.max(term.rows, 1)));
     }, { passive: true });
 
     el.addEventListener('touchmove', function (e) {
       if (!tracking || e.touches.length !== 1) return;
-      e.preventDefault(); // we own the vertical drag in the alternate buffer
-      const x = e.touches[0].clientX, y = e.touches[0].clientY;
-      let dy = lastY - y; // finger up => positive => scroll down (natural)
-      lastX = x;
+      e.preventDefault(); // we own the vertical drag
+      const y = e.touches[0].clientY;
+      lastX = e.touches[0].clientX;
+      let dy = lastY - y; // finger up => positive => scroll toward newer content
+      const target = scrollTarget();
       while (Math.abs(dy) >= step) {
         const dir = dy > 0 ? 1 : -1;
         lastY = y;
-        emitWheel(dir);
+        if (target === 'app') emitWheel(dir); else term.scrollLines(dir);
         dy -= dir * step;
       }
       lastY = y + dy; // carry the sub-step remainder into the next move

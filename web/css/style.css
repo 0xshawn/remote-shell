@@ -1,3 +1,31 @@
+/* Bundled glyph for U+23F5 "⏵" (Claude Code's auto-accept indicator), which common
+   monospace webfonts lack and would render as a tofu box. The font carries a single
+   hand-drawn, optically-centered triangle; unicode-range scopes it to exactly that
+   codepoint so no other character is affected and it's only fetched when ⏵ appears. */
+@font-face {
+  font-family: "SymbolsMedia";
+  src: url("/fonts/SymbolsMedia.ttf") format("truetype");
+  unicode-range: U+23F5;
+}
+
+/* Bundled terminal typeface (Cascadia Code), so the terminal renders the same on
+   every device instead of falling back to whatever monospace the client happens
+   to have. Regular + bold are bundled for true (non-synthetic) bold text. */
+@font-face {
+  font-family: "Cascadia Code";
+  src: url("/fonts/CascadiaCode-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cascadia Code";
+  src: url("/fonts/CascadiaCode-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 
@@ -124,10 +152,13 @@ body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
 .status-connecting { background: #b08800; }
 
 /* ---------- terminal ---------- */
-/* xterm owns the scrollback now (no tmux), so leave touch gestures to the
-   browser / xterm's own viewport — they drive native scrolling. */
-#terminal { flex: 1 1 auto; min-height: 0; padding: 4px 6px; }
+/* app.js owns one-finger touch scrolling for both buffers, so disable native
+   touch panning/zoom here — otherwise mobile browsers hijack the vertical drag
+   before our touchmove can cancel it. touch-action must sit on the actual touch
+   targets (screen/viewport), not just the container. */
+#terminal { flex: 1 1 auto; min-height: 0; padding: 4px 6px; touch-action: none; }
 .xterm { height: 100%; }
+.xterm .xterm-viewport, .xterm .xterm-screen { touch-action: none; }
 
 /* ---------- helper keys (toggled panel) ---------- */
 /* The #kb-fab toolbar button toggles this on. The .hidden class (set by JS)
