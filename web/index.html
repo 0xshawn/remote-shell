@@ -14,6 +14,7 @@
   <div id="toolbar">
     <span id="status" class="status-dot status-off" title="offline"></span>
     <div id="tabs"></div>
+    <button id="kb-fab" title="Toggle keys" aria-label="Toggle keys">⌨️</button>
     <button id="btn-paste" title="Paste from clipboard">Paste</button>
     <div id="menu-wrap">
       <button id="btn-menu" title="More actions" aria-haspopup="true">&#8943;</button>
@@ -33,11 +34,10 @@
 
   <div id="terminal"></div>
 
-  <!-- Helper keys, shown on touch devices: row 1 essentials + expand toggle,
-       row 2 extras (hidden until expanded). -->
-  <div id="keybar">
-    <div id="keybar-row1"></div>
-    <div id="keybar-row2" class="hidden"></div>
+  <!-- Helper keys for touch devices. Hidden by default; the toolbar button
+       (#kb-fab) toggles the whole panel. All keys live in one wrapping row. -->
+  <div id="keybar" class="hidden">
+    <div id="keybar-keys"></div>
   </div>
 
   <!-- Paste fallback overlay (used when navigator.clipboard is unavailable,

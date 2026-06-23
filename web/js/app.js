@@ -554,12 +554,11 @@
   }
 
   // --------------------------------------------------------------------------
-  // Mobile helper keys — two tiers. Row 1 holds the essentials and is always
-  // visible; row 2 (extras) is revealed by the ⌄ toggle. Keys flex to fill the
-  // row width, so nothing needs horizontal scrolling.
+  // Mobile helper keys — a single wrapping panel toggled by the floating button
+  // (#kb-fab) in the bottom-left corner. Hidden by default; one tap shows every
+  // key, another tap hides them. Keys wrap to fill the width.
   // --------------------------------------------------------------------------
-  const row1 = $('keybar-row1');
-  const row2 = $('keybar-row2');
+  const keys = $('keybar-keys');
 
   // Modifier button. preventDefault on mousedown keeps focus on the terminal so
   // the soft keyboard stays open while arming a modifier.
@@ -586,47 +585,44 @@
     parent.appendChild(b);
   }
 
-  addKey(row1, 'Esc', '\x1b');
-  addKey(row1, 'Tab', '\t');
-  addMod(row1, 'Ctrl', 'ctrl');
-  addKey(row1, '^C', '\x03', true);
-  addKey(row1, '←', '\x1b[D');
-  addKey(row1, '↑', '\x1b[A');
-  addKey(row1, '↓', '\x1b[B');
-  addKey(row1, '→', '\x1b[C');
+  addKey(keys, 'Esc', '\x1b');
+  addKey(keys, 'Tab', '\t');
+  addMod(keys, 'Ctrl', 'ctrl');
+  addKey(keys, '^C', '\x03', true);
+  addKey(keys, '←', '\x1b[D');
+  addKey(keys, '↑', '\x1b[A');
+  addKey(keys, '↓', '\x1b[B');
+  addKey(keys, '→', '\x1b[C');
+  addMod(keys, 'Shift', 'shift');
+  addMod(keys, 'Alt', 'alt');
+  addKey(keys, '^D', '\x04', true);
+  addKey(keys, '^Z', '\x1a', true);
+  addKey(keys, 'Home', '\x1b[H');
+  addKey(keys, 'End', '\x1b[F');
+  addKey(keys, '|', '|');
+  addKey(keys, '~', '~');
+  addKey(keys, '/', '/');
+  addKey(keys, '-', '-');
 
-  // Expand / collapse toggle for the extras row (persisted).
-  const expandBtn = document.createElement('button');
-  expandBtn.id = 'kb-expand';
-  let kbExpanded = localStorage.getItem('rs_kb_expanded') === '1';
-  function applyKbExpanded() {
-    row2.classList.toggle('hidden', !kbExpanded);
-    expandBtn.textContent = kbExpanded ? '⌃' : '⌄'; // ⌃ / ⌄
-    expandBtn.title = kbExpanded ? 'Fewer keys' : 'More keys';
+  // Floating toggle: show/hide the whole key panel (persisted).
+  const keybar = $('keybar');
+  const fab = $('kb-fab');
+  let kbOpen = localStorage.getItem('rs_kb_open') === '1';
+  function applyKbOpen() {
+    keybar.classList.toggle('hidden', !kbOpen);
+    fab.classList.toggle('active', kbOpen);
   }
-  expandBtn.addEventListener('mousedown', function (e) { e.preventDefault(); });
-  expandBtn.addEventListener('click', function (e) {
+  fab.addEventListener('mousedown', function (e) { e.preventDefault(); });
+  fab.addEventListener('click', function (e) {
     e.preventDefault();
-    kbExpanded = !kbExpanded;
-    localStorage.setItem('rs_kb_expanded', kbExpanded ? '1' : '0');
-    applyKbExpanded();
+    kbOpen = !kbOpen;
+    localStorage.setItem('rs_kb_open', kbOpen ? '1' : '0');
+    applyKbOpen();
     doFit(); // the terminal height changed
     term.focus();
   });
-  row1.appendChild(expandBtn);
 
-  addMod(row2, 'Shift', 'shift');
-  addMod(row2, 'Alt', 'alt');
-  addKey(row2, '^D', '\x04', true);
-  addKey(row2, '^Z', '\x1a', true);
-  addKey(row2, 'Home', '\x1b[H');
-  addKey(row2, 'End', '\x1b[F');
-  addKey(row2, '|', '|');
-  addKey(row2, '~', '~');
-  addKey(row2, '/', '/');
-  addKey(row2, '-', '-');
-
-  applyKbExpanded();
+  applyKbOpen();
   if (window.matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
 
   // --------------------------------------------------------------------------

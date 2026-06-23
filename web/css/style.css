@@ -129,9 +129,10 @@ body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
 #terminal { flex: 1 1 auto; min-height: 0; padding: 4px 6px; }
 .xterm { height: 100%; }
 
-/* ---------- mobile helper keys (two tiers) ---------- */
-#keybar { display: none; }
-body.touch #keybar {
+/* ---------- helper keys (toggled panel) ---------- */
+/* The #kb-fab toolbar button toggles this on. The .hidden class (set by JS)
+   collapses it; otherwise it shows on any device. */
+#keybar {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -140,19 +141,31 @@ body.touch #keybar {
   border-top: 1px solid #333;
   flex: 0 0 auto;
 }
+#keybar.hidden { display: none; }
 body.light #keybar { background: #f3f3f3; border-color: #ddd; }
-#keybar-row1, #keybar-row2 { display: flex; gap: 6px; }
-/* Keys flex to fill the row, so nothing needs horizontal scrolling. */
-body.touch #keybar button { flex: 1 1 0; min-width: 34px; padding: 10px 4px; font-size: 15px; }
-#kb-expand { flex: 0 0 auto; min-width: 44px; }
+/* All keys live in one wrapping row, so nothing is clipped off-screen and
+   4-char labels (Home/Shift) fit without overflow. */
+#keybar-keys { display: flex; flex-wrap: wrap; gap: 6px; }
+#keybar button {
+  flex: 1 1 auto;
+  min-width: 44px;
+  padding: 10px 8px;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+/* Keyboard toggle: a toolbar button (left of Paste), always shown.
+   Emoji icon, sized larger than the text buttons. */
+#kb-fab { flex: 0 0 auto; font-size: 20px; line-height: 1; padding: 3px 9px; }
+#kb-fab.active { background: #0e639c; border-color: #1177bb; color: #fff; }
 
 /* Modifier-key states: latched = mild accent, locked = strong accent + ring. */
-body.touch #keybar button.mod.latched {
+#keybar button.mod.latched {
   background: #0e639c;
   border-color: #1177bb;
   color: #fff;
 }
-body.touch #keybar button.mod.locked {
+#keybar button.mod.locked {
   background: #0e639c;
   border-color: #ffffff;
   color: #fff;
