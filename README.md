@@ -26,17 +26,19 @@ Browser (xterm.js + WebGL) ──WebSocket──► Go gateway ──fork──�
 
 ## Quick start
 
-**Server + web** (Docker, from the repo root) — one command:
+**Server + web** (Docker) — one command, no clone needed:
 
 ```bash
-./deploy.sh
+curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install.sh | bash
 # open the printed https://<host>:8443  (self-signed cert → accept the warning)
 ```
 
-`deploy.sh` builds the image, creates `.env`, auto-detects your host user,
-generates + persists the secrets, generates a self-signed TLS cert, and
-authorizes the container's SSH key on the host — then prints the login password.
-It is safe to re-run.
+The installer fetches the repo into `~/remote-shell` (override with
+`REMOTE_SHELL_DIR=`) and runs `deploy.sh`, which builds the image, creates
+`.env`, auto-detects your host user, generates + persists the secrets, generates
+a self-signed TLS cert, and authorizes the container's SSH key on the host —
+then prints the login password. It is safe to re-run. From an existing clone,
+run `./deploy.sh` directly.
 
 By default the web terminal logs into the **host** shell over SSH (not the
 container). To pin credentials, use real TLS certs, or switch to a plain

@@ -68,17 +68,17 @@ If you omit `--password`, a random one is generated and printed on startup.
 2. Refresh the browser.
 3. You are still in `top`; `echo $FOO` prints `bar`; cwd is still `/tmp`.
 
-## Docker (from the repo root)
+## Docker
 
-One command builds the server (baking in `web/`), starts it behind nginx, wires
-the host SSH key, and prints the login password:
+One command — no clone needed — fetches the repo, builds the server (baking in
+`web/`), starts it behind nginx, wires the host SSH key, and prints the password:
 
 ```bash
-./deploy.sh
+curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install.sh | bash
 # open the printed https://<host>:8443
 ```
 
-What it does for you on a first run:
+From an existing clone, run `./deploy.sh` directly. What either does on a first run:
 
 - Creates `.env` and sets `SSH_USER` to your host user.
 - The server generates + persists `AUTH_PASS` and `TOKEN_SECRET` to the
