@@ -156,7 +156,12 @@ body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
    touch panning/zoom here — otherwise mobile browsers hijack the vertical drag
    before our touchmove can cancel it. touch-action must sit on the actual touch
    targets (screen/viewport), not just the container. */
-#terminal { flex: 1 1 auto; min-height: 0; padding: 4px 6px; touch-action: none; }
+/* One xterm per tab: panes stack absolutely inside the host and only the active
+   one is visible. We use visibility (not display:none) for inactive panes so they
+   keep their box dimensions — fitAddon.fit() then stays correct in the background,
+   which matters for full-screen apps (htop/vim) that size to cols/rows. */
+#terminals { position: relative; flex: 1 1 auto; min-height: 0; }
+.term-pane { position: absolute; inset: 0; padding: 4px 6px; touch-action: none; }
 .xterm { height: 100%; }
 .xterm .xterm-viewport, .xterm .xterm-screen { touch-action: none; }
 
@@ -234,6 +239,23 @@ body.light #keybar { background: #f3f3f3; border-color: #ddd; }
   background: #1e1e1e;
   color: #eee;
   font-size: 16px; /* >=16px stops iOS Safari from zooming on focus */
+}
+#login-form #login-remember-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+}
+#login-form input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  accent-color: #0e639c;
 }
 #login-form button { padding: 10px; font-size: 15px; background: #0e639c; border-color: #0e639c; color: #fff; }
 #login-form .error { color: #f48771; font-size: 13px; margin: 0; text-align: center; }

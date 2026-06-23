@@ -3,19 +3,42 @@
 
   function $(id) { return document.getElementById(id); }
 
-  let token = localStorage.getItem('rs_token') || '';
+  // --------------------------------------------------------------------------
+  // Auth token storage. "Remember me" decides persistence: localStorage survives
+  // a browser restart, sessionStorage is cleared when the tab closes. We read
+  // from whichever holds it so an existing session keeps working either way.
+  // --------------------------------------------------------------------------
+  function getToken() {
+    return localStorage.getItem('rs_token') || sessionStorage.getItem('rs_token') || '';
+  }
+  function storeToken(tok, remember) {
+    if (remember) {
+      localStorage.setItem('rs_token', tok);
+      sessionStorage.removeItem('rs_token');
+    } else {
+      sessionStorage.setItem('rs_token', tok);
+      localStorage.removeItem('rs_token');
+    }
+  }
+  function clearToken() {
+    localStorage.removeItem('rs_token');
+    sessionStorage.removeItem('rs_token');
+  }
+  let token = getToken();
 
   // --------------------------------------------------------------------------
   // Multi-terminal state. Each tab is a server-side persistent session keyed by
   // sid; the server is the source of truth (GET /api/sessions), so any device
   // logged in as the same user sees the same tabs. We keep ONE xterm + ONE
-  // WebSocket and reconnect when switching tabs — the server replays the
-  // session's scrollback from its ring buffer on attach, so switching is
-  // seamless.
+  // WebSocket PER tab (a "pane"), all kept alive at once: switching tabs just
+  // shows/hides a pane, so the newly shown terminal is instant — no reconnect,
+  // no scrollback replay. A pane connects lazily the first time it is shown,
+  // then keeps streaming in the background.
   // --------------------------------------------------------------------------
-  let sessions = [];   // [{id,title,createdAt,lastActive,attached,cols,rows}]
+  let sessions = [];        // [{id,title,createdAt,lastActive,attached,cols,rows}]
   let activeSid = (localStorage.getItem('rs_active') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
-  let pendingTitle = ''; // title sent on the next WS connect (used when creating)
+  const panes = new Map();  // sid -> pane
+  let activePane = null;
 
   function newSid() {
     const id = (crypto.randomUUID ? crypto.randomUUID() : 's' + Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -23,8 +46,8 @@
   }
 
   // --------------------------------------------------------------------------
-  // Terminal. The frontend owns all scrollback (50k lines) and renders on the
-  // GPU via the WebGL addon — scrolling is browser-native and buttery.
+  // Terminal look & feel (shared by every pane). The frontend owns all scrollback
+  // (50k lines) and renders on the GPU via the WebGL addon.
   // --------------------------------------------------------------------------
   const THEMES = {
     dark: { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#ffffff', selectionBackground: '#264f78' },
@@ -33,51 +56,15 @@
   let themeName = localStorage.getItem('rs_theme') || 'dark';
   let fontSize = parseInt(localStorage.getItem('rs_fontsize') || '14', 10);
 
-  const term = new Terminal({
-    cursorBlink: true,
-    // "SymbolsMedia" is first but unicode-range-scoped to U+23F5, so it only wins
-    // for that glyph; "Cascadia Code" (bundled webfont) is the real terminal face.
-    fontFamily: '"SymbolsMedia", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace',
-    fontSize: fontSize,
-    scrollback: 50000,
-    theme: THEMES[themeName],
-    allowProposedApi: true,
-  });
-  const fitAddon = new FitAddon.FitAddon();
-  term.loadAddon(fitAddon);
-  term.open($('terminal'));
-  // WebGL renderer: GPU-accelerated, falls back to the default renderer if the
-  // context is unavailable or lost (e.g. the tab is backgrounded too long).
-  try {
-    const webgl = new WebglAddon.WebglAddon();
-    webgl.onContextLoss(function () { webgl.dispose(); });
-    term.loadAddon(webgl);
-  } catch (e) { /* WebGL unavailable: xterm uses its canvas/DOM fallback */ }
-  fitAddon.fit();
-  term.focus();
-
-  // Cascadia Code is a bundled webfont; xterm caches glyph cell metrics when it
-  // opens, so if the font hasn't loaded yet the first paint uses fallback metrics.
-  // Once both weights load, round-trip the font size to force a re-measure with the
-  // real font, then refit so columns/rows are correct.
-  if (document.fonts && document.fonts.load) {
-    Promise.all([
-      document.fonts.load(fontSize + 'px "Cascadia Code"'),
-      document.fonts.load('bold ' + fontSize + 'px "Cascadia Code"'),
-    ]).then(function () {
-      term.options.fontSize = fontSize + 1;
-      term.options.fontSize = fontSize;
-      fitAddon.fit();
-    }).catch(function () { /* font load failed: keep fallback metrics */ });
-  }
-
-  // --------------------------------------------------------------------------
-  // WebSocket connection + auto-reconnect
-  // --------------------------------------------------------------------------
-  let ws = null;
-  let reconnectTimer = null;
-  let reconnectDelay = 1000;
-  let intentionalClose = false;
+  // Cascadia Code is a bundled webfont; xterm caches glyph cell metrics per
+  // Terminal when it opens, so each pane re-measures once both weights load
+  // (round-trip the font size, then refit). Load the font once for the page.
+  const fontsReady = (document.fonts && document.fonts.load)
+    ? Promise.all([
+        document.fonts.load(fontSize + 'px "Cascadia Code"'),
+        document.fonts.load('bold ' + fontSize + 'px "Cascadia Code"'),
+      ]).catch(function () { /* font load failed: keep fallback metrics */ })
+    : Promise.resolve();
 
   function setStatus(state, text) {
     const el = $('status');
@@ -85,126 +72,295 @@
     el.title = text;
   }
 
-  function wsUrl() {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const params = new URLSearchParams({
-      token: token,
-      session: activeSid,
-      cols: String(term.cols),
-      rows: String(term.rows),
+  // --------------------------------------------------------------------------
+  // Pane: one xterm + one WebSocket bound to a single session sid. All terminal
+  // and socket state lives here; the module-level handlers below route to the
+  // active pane. connGen rises on every connect(); a socket's handlers no-op once
+  // a newer connection (or a dispose) supersedes them, so a stale socket can't
+  // keep auto-reconnecting.
+  // --------------------------------------------------------------------------
+  function makePane(sid) {
+    const el = document.createElement('div');
+    el.className = 'term-pane';
+    el.style.visibility = 'hidden';
+    $('terminals').appendChild(el);
+
+    const term = new Terminal({
+      cursorBlink: true,
+      // "SymbolsMedia" is first but unicode-range-scoped to U+23F5, so it only wins
+      // for that glyph; "Cascadia Code" (bundled webfont) is the real terminal face.
+      fontFamily: '"SymbolsMedia", "Cascadia Code", Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace',
+      fontSize: fontSize,
+      scrollback: 50000,
+      theme: THEMES[themeName],
+      allowProposedApi: true,
     });
-    if (pendingTitle) params.set('title', pendingTitle);
-    return proto + '//' + location.host + '/ws?' + params.toString();
-  }
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(el);
 
-  function send(op, data) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(op + data);
-  }
-  function sendResize() {
-    send('1', JSON.stringify({ cmd: 'resize', cols: term.cols, rows: term.rows }));
-  }
-
-  // connGen rises on every connect(). A socket's handlers no-op once a newer
-  // connection supersedes them, so switching tabs (close old, open new) can't
-  // leave a stale socket auto-reconnecting.
-  let connGen = 0;
-
-  function connect() {
-    if (!token) { showLogin(); return; }
-    if (!activeSid) return;
-    clearTimeout(reconnectTimer);
-    setStatus('connecting', 'connecting…');
-    intentionalClose = false;
-    const myGen = ++connGen;
-    const sock = new WebSocket(wsUrl());
-    ws = sock;
-
-    sock.onopen = function () {
-      if (myGen !== connGen) { try { sock.close(); } catch (e) {} return; }
-      reconnectDelay = 1000;
-      setStatus('on', 'online');
-      // The server dumps the session's scrollback buffer right after connect,
-      // so clear any stale content first to avoid stacking it on top.
-      term.reset();
-      sendResize();
-      term.focus();
+    const pane = {
+      sid: sid,
+      term: term,
+      fitAddon: fitAddon,
+      webgl: null,
+      el: el,
+      ws: null,
+      connGen: 0,
+      reconnectTimer: null,
+      reconnectDelay: 1000,
+      intentionalClose: false,
+      pendingTitle: '',   // title sent on this pane's next connect (used when creating)
+      connected: false,   // whether we've started this pane's connection lifecycle
     };
 
-    sock.onmessage = function (ev) {
-      if (myGen !== connGen) return;
-      const msg = typeof ev.data === 'string' ? ev.data : '';
-      const op = msg[0];
-      const body = msg.slice(1);
-      if (op === '0') {
-        term.write(body);
-      } else if (op === '1') {
-        let m;
-        try { m = JSON.parse(body); } catch (e) { return; }
-        handleEvent(m);
+    // WebGL renderer: GPU-accelerated, falls back to the default renderer if the
+    // context is unavailable or lost (e.g. too many tabs, or the tab is
+    // backgrounded too long). For a handful of tabs this stays under the browser's
+    // ~16 live-context limit; beyond that, panes degrade gracefully to canvas/DOM.
+    try {
+      const webgl = new WebglAddon.WebglAddon();
+      webgl.onContextLoss(function () { webgl.dispose(); pane.webgl = null; });
+      term.loadAddon(webgl);
+      pane.webgl = webgl;
+    } catch (e) { /* WebGL unavailable: xterm uses its canvas/DOM fallback */ }
+
+    fitAddon.fit();
+
+    fontsReady.then(function () {
+      term.options.fontSize = fontSize + 1;
+      term.options.fontSize = fontSize;
+      if (pane === activePane) pane.fit();
+    });
+
+    // Per-Terminal handlers (instance APIs, so each pane wires its own). Only the
+    // focused terminal fires these, and only the active pane is ever focused, so
+    // the active-pane-aware callbacks always target the right terminal.
+    term.onData(function (d) { sendKey(d); });
+    term.attachCustomKeyEventHandler(function (e) {
+      if (e.type !== 'keydown') return true;
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.shiftKey && (e.key === 'C' || e.key === 'c')) { copySelection(); return false; }
+      if (mod && e.shiftKey && (e.key === 'V' || e.key === 'v')) { pasteClipboard(); return false; }
+      return true;
+    });
+    term.onSelectionChange(function () {
+      const sel = term.getSelection();
+      if (sel && sel.length && navigator.clipboard && window.matchMedia('(pointer: fine)').matches) {
+        navigator.clipboard.writeText(sel).catch(function () {});
+      }
+    });
+
+    // status() only touches the global dot for the active pane, so a background
+    // pane's connect/close never flips it.
+    pane.status = function (state, text) { if (pane === activePane) setStatus(state, text); };
+    pane.fit = function () { try { fitAddon.fit(); } catch (e) { /* ignore */ } };
+
+    pane.wsUrl = function () {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const params = new URLSearchParams({
+        token: token,
+        session: pane.sid,
+        cols: String(term.cols),
+        rows: String(term.rows),
+      });
+      if (pane.pendingTitle) params.set('title', pane.pendingTitle);
+      return proto + '//' + location.host + '/ws?' + params.toString();
+    };
+
+    pane.send = function (op, data) {
+      if (pane.ws && pane.ws.readyState === WebSocket.OPEN) pane.ws.send(op + data);
+    };
+    pane.sendResize = function () {
+      pane.send('1', JSON.stringify({ cmd: 'resize', cols: term.cols, rows: term.rows }));
+    };
+
+    pane.connect = function () {
+      if (!token) { showLogin(); return; }
+      if (pane.ws && pane.ws.readyState <= WebSocket.OPEN) return; // already connecting/open
+      clearTimeout(pane.reconnectTimer);
+      pane.status('connecting', 'connecting…');
+      pane.intentionalClose = false;
+      const myGen = ++pane.connGen;
+      const sock = new WebSocket(pane.wsUrl());
+      pane.ws = sock;
+
+      sock.onopen = function () {
+        if (myGen !== pane.connGen) { try { sock.close(); } catch (e) {} return; }
+        pane.reconnectDelay = 1000;
+        pane.status('on', 'online');
+        // The server dumps the session's scrollback buffer right after connect,
+        // so clear any stale content first to avoid stacking it on top.
+        term.reset();
+        pane.sendResize();
+        if (pane === activePane) term.focus();
+      };
+
+      sock.onmessage = function (ev) {
+        if (myGen !== pane.connGen) return;
+        const msg = typeof ev.data === 'string' ? ev.data : '';
+        const op = msg[0];
+        const body = msg.slice(1);
+        if (op === '0') {
+          term.write(body);
+        } else if (op === '1') {
+          let m;
+          try { m = JSON.parse(body); } catch (e) { return; }
+          pane.handleEvent(m);
+        }
+      };
+
+      sock.onclose = async function () {
+        if (myGen !== pane.connGen) return; // superseded by a newer connection
+        pane.status('off', 'offline');
+        if (pane.intentionalClose) return;
+        // Distinguish "token expired" from "network blip" before retrying.
+        const ok = await verifyToken();
+        if (myGen !== pane.connGen) return;
+        if (!ok) { showLogin(); return; }
+        pane.status('connecting', 'reconnecting…');
+        pane.reconnectTimer = setTimeout(pane.connect, pane.reconnectDelay);
+        pane.reconnectDelay = Math.min(pane.reconnectDelay * 1.5, 10000);
+      };
+
+      sock.onerror = function () { /* onclose handles the retry */ };
+    };
+
+    pane.handleEvent = function (m) {
+      if (m.event === 'session') {
+        // A session was (re)attached; clear the create-title and resync the tabs
+        // (a freshly created session now exists server-side).
+        pane.pendingTitle = '';
+        fetchSessions();
+      } else if (m.event === 'error') {
+        term.write('\r\n\x1b[31m[remote-shell] ' + (m.message || 'error') + '\x1b[0m\r\n');
+      } else if (m.event === 'ended') {
+        pane.intentionalClose = true; // the PTY is gone; don't auto-reconnect to it
+        removeSession(pane.sid);
       }
     };
 
-    sock.onclose = async function () {
-      if (myGen !== connGen) return; // superseded by a newer connection
-      setStatus('off', 'offline');
-      if (intentionalClose) return;
-      // Distinguish "token expired" from "network blip" before retrying.
-      const ok = await verifyToken();
-      if (myGen !== connGen) return;
-      if (!ok) { showLogin(); return; }
-      setStatus('connecting', 'reconnecting…');
-      reconnectTimer = setTimeout(connect, reconnectDelay);
-      reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+    pane.dispose = function () {
+      pane.intentionalClose = true;
+      pane.connGen++; // no-op any in-flight socket handlers / pending reconnect
+      clearTimeout(pane.reconnectTimer);
+      if (pane.ws) { try { pane.ws.close(); } catch (e) {} }
+      if (pane.webgl) { try { pane.webgl.dispose(); } catch (e) {} }
+      try { term.dispose(); } catch (e) {}
+      el.remove();
     };
 
-    sock.onerror = function () { /* onclose handles the retry */ };
+    return pane;
   }
 
-  function handleEvent(m) {
-    if (m.event === 'session') {
-      // A session was (re)attached; clear the create-title and resync the tabs
-      // (a freshly created session now exists server-side).
-      pendingTitle = '';
-      fetchSessions();
-    } else if (m.event === 'error') {
-      term.write('\r\n\x1b[31m[remote-shell] ' + (m.message || 'error') + '\x1b[0m\r\n');
-    } else if (m.event === 'ended') {
-      term.write('\r\n\x1b[33m[remote-shell] session ended\x1b[0m\r\n');
-      intentionalClose = true; // the PTY is gone; don't auto-reconnect to it
-      const dead = activeSid;
-      sessions = sessions.filter(function (s) { return s.id !== dead; });
-      renderTabs();
+  // --------------------------------------------------------------------------
+  // Pane lifecycle / tabs. The server (GET /api/sessions) is the source of truth
+  // for the tab list; panes are created lazily on first switch and disposed when
+  // their session disappears. Functions are hoisted declarations so ordering
+  // among them doesn't matter.
+  // --------------------------------------------------------------------------
+  function ensurePane(sid) {
+    let p = panes.get(sid);
+    if (!p) { p = makePane(sid); panes.set(sid, p); }
+    return p;
+  }
+  function disposePane(sid) {
+    const p = panes.get(sid);
+    if (p) { p.dispose(); panes.delete(sid); }
+  }
+  // reconcilePanes drops panes whose session no longer exists server-side (e.g.
+  // closed on another device). It stays lazy — it never pre-creates panes for
+  // sessions not yet visited. If the active pane vanished, fall back to another.
+  function reconcilePanes() {
+    const hadActive = activePane;
+    const live = new Set(sessions.map(function (s) { return s.id; }));
+    panes.forEach(function (p, sid) { if (!live.has(sid)) disposePane(sid); });
+    if (hadActive && !panes.has(hadActive.sid)) {
+      activePane = null;
       switchToAny();
     }
   }
 
-  term.onData(function (d) { sendKey(d); });
+  function paneStatus(p) {
+    if (!p || !p.ws) return ['off', 'offline'];
+    if (p.ws.readyState === WebSocket.OPEN) return ['on', 'online'];
+    if (p.ws.readyState === WebSocket.CONNECTING) return ['connecting', 'connecting…'];
+    return ['off', 'offline'];
+  }
+
+  function switchTo(sid) {
+    if (!sid) return;
+    const target = ensurePane(sid);
+    if (activePane === target) { target.term.focus(); return; }
+    if (activePane) activePane.el.style.visibility = 'hidden';
+    activePane = target;
+    activeSid = sid;
+    localStorage.setItem('rs_active', sid);
+    target.el.style.visibility = '';
+    renderTabs();
+
+    if (!target.connected) {
+      target.connected = true;
+      target.connect();
+    } else if (!target.ws || target.ws.readyState > WebSocket.OPEN) {
+      // Dropped while hidden and waiting on backoff — reconnect now instead of
+      // making the user stare at stale content until the next retry.
+      target.reconnectDelay = 1000;
+      clearTimeout(target.reconnectTimer);
+      target.connect();
+    } else {
+      const st = paneStatus(target);
+      setStatus(st[0], st[1]);
+    }
+
+    // Fit after the visibility change flushes to layout, then resync the PTY size
+    // (the window may have resized while this pane was hidden).
+    requestAnimationFrame(function () {
+      target.fit();
+      target.sendResize();
+      target.term.focus();
+    });
+  }
+
+  // switchToAny picks a remaining tab after the active one is closed/ended, or
+  // creates a fresh terminal if none are left.
+  function switchToAny() {
+    if (activeSid && panes.has(activeSid) && sessions.some(function (s) { return s.id === activeSid; })) return;
+    if (sessions.length) switchTo(sessions[sessions.length - 1].id);
+    else createSession();
+  }
+
+  // removeSession drops a session from the tab list and disposes its pane. Only
+  // switches away when it was the *active* session — a background session ending
+  // must not yank the tab the user is looking at.
+  function removeSession(sid) {
+    const wasActive = sid === activeSid;
+    sessions = sessions.filter(function (s) { return s.id !== sid; });
+    disposePane(sid);
+    renderTabs();
+    if (wasActive) { activePane = null; switchToAny(); }
+  }
 
   async function verifyToken() {
     if (!token) return false;
     try {
       const r = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + token } });
-      if (r.status === 401) { token = ''; localStorage.removeItem('rs_token'); return false; }
+      if (r.status === 401) { token = ''; clearToken(); return false; }
       return r.ok;
     } catch (e) {
       return true; // network error: keep trying, don't bounce to login
     }
   }
 
-  // --------------------------------------------------------------------------
-  // Tabs / sessions. The server (GET /api/sessions) is the source of truth, so
-  // a second device sees the same tab list; we keep one xterm + one WS and
-  // reconnect when switching. Functions are hoisted declarations so ordering
-  // among them (and vs. connect/showLogin) doesn't matter.
-  // --------------------------------------------------------------------------
   async function fetchSessions() {
     if (!token) return;
     try {
       const r = await fetch('/api/sessions', { headers: { Authorization: 'Bearer ' + token } });
-      if (r.status === 401) { token = ''; localStorage.removeItem('rs_token'); showLogin(); return; }
+      if (r.status === 401) { token = ''; clearToken(); showLogin(); return; }
       if (!r.ok) return;
       const data = await r.json();
       sessions = Array.isArray(data.sessions) ? data.sessions : [];
+      reconcilePanes();
       renderTabs();
     } catch (e) { /* keep the last known tabs on a network blip */ }
   }
@@ -236,31 +392,6 @@
     wrap.appendChild(add);
   }
 
-  function switchTo(sid) {
-    if (!sid || sid === activeSid) { term.focus(); return; }
-    activeSid = sid;
-    localStorage.setItem('rs_active', sid);
-    pendingTitle = '';
-    intentionalClose = true;
-    if (ws) { try { ws.close(); } catch (e) {} }
-    reconnectDelay = 1000;
-    term.reset();
-    renderTabs();
-    connect();
-  }
-
-  // switchToAny picks a remaining tab after the active one is closed/ended, or
-  // creates a fresh terminal if none are left.
-  function switchToAny() {
-    if (sessions.some(function (s) { return s.id === activeSid; })) return;
-    if (sessions.length) {
-      activeSid = ''; // force switchTo to proceed
-      switchTo(sessions[sessions.length - 1].id);
-    } else {
-      createSession();
-    }
-  }
-
   function nextShellName() {
     let max = 0;
     sessions.forEach(function (s) {
@@ -272,18 +403,18 @@
 
   function createSession() {
     const sid = newSid();
-    pendingTitle = nextShellName();
+    const p = ensurePane(sid);
+    p.pendingTitle = nextShellName();
     // Optimistically add the tab; the server creates the PTY on connect and the
     // 'session' event triggers a fetchSessions() that reconciles the list.
-    sessions.push({ id: sid, title: pendingTitle, createdAt: Date.now() });
-    activeSid = '';
+    sessions.push({ id: sid, title: p.pendingTitle, createdAt: Date.now() });
     switchTo(sid);
   }
 
   async function deleteSession(sid) {
     if (!confirm('Close this terminal? Its running processes will be killed.')) return;
     const wasActive = sid === activeSid;
-    if (wasActive) { intentionalClose = true; if (ws) { try { ws.close(); } catch (e) {} } }
+    disposePane(sid); // closes its socket (intentionalClose) so it won't reconnect
     try {
       await fetch('/api/sessions?id=' + encodeURIComponent(sid), {
         method: 'DELETE',
@@ -292,7 +423,7 @@
     } catch (e) { /* still drop it locally */ }
     sessions = sessions.filter(function (s) { return s.id !== sid; });
     renderTabs();
-    if (wasActive) switchToAny();
+    if (wasActive) { activePane = null; switchToAny(); }
   }
 
   async function boot() {
@@ -303,31 +434,36 @@
       activeSid = sessions[sessions.length - 1].id;
     }
     localStorage.setItem('rs_active', activeSid);
-    renderTabs();
-    connect();
+    switchTo(activeSid);
   }
 
   // --------------------------------------------------------------------------
-  // Resize (debounced via rAF)
+  // Resize (debounced via rAF). Only the active pane is visible, so only it needs
+  // fitting on a window/layout change; background panes re-fit when next shown.
   // --------------------------------------------------------------------------
   let resizeRAF = null;
   function doFit() {
     cancelAnimationFrame(resizeRAF);
     resizeRAF = requestAnimationFrame(function () {
-      try { fitAddon.fit(); } catch (e) { /* ignore */ }
-      sendResize();
+      if (!activePane) return;
+      activePane.fit();
+      activePane.sendResize();
     });
   }
   window.addEventListener('resize', doFit);
-  if (window.ResizeObserver) new ResizeObserver(doFit).observe($('terminal'));
+  if (window.ResizeObserver) new ResizeObserver(doFit).observe($('terminals'));
 
   // --------------------------------------------------------------------------
   // Login
   // --------------------------------------------------------------------------
   function showLogin() {
     setStatus('off', 'offline');
+    const savedUser = localStorage.getItem('rs_user') || '';
+    $('login-user').value = savedUser;
+    $('login-pass').value = ''; // Chrome re-autofills the saved password
+    $('login-remember').checked = localStorage.getItem('rs_remember') !== '0';
     $('login').classList.remove('hidden');
-    $('login-user').focus();
+    if (savedUser) $('login-pass').focus(); else $('login-user').focus();
   }
   function hideLogin() { $('login').classList.add('hidden'); }
 
@@ -335,6 +471,7 @@
     e.preventDefault();
     const username = $('login-user').value;
     const password = $('login-pass').value;
+    const remember = $('login-remember').checked;
     const errEl = $('login-error');
     errEl.classList.add('hidden');
     try {
@@ -350,7 +487,10 @@
       }
       const data = await res.json();
       token = data.token;
-      localStorage.setItem('rs_token', token);
+      storeToken(token, remember);
+      localStorage.setItem('rs_remember', remember ? '1' : '0');
+      if (remember) localStorage.setItem('rs_user', username);
+      else localStorage.removeItem('rs_user');
       hideLogin();
       boot();
     } catch (err) {
@@ -363,14 +503,14 @@
   // Toolbar
   // --------------------------------------------------------------------------
   function applyFont() {
-    term.options.fontSize = fontSize;
     localStorage.setItem('rs_fontsize', String(fontSize));
+    panes.forEach(function (p) { p.term.options.fontSize = fontSize; });
     doFit();
   }
   function applyTheme() {
-    term.options.theme = THEMES[themeName];
     localStorage.setItem('rs_theme', themeName);
     document.body.classList.toggle('light', themeName === 'light');
+    panes.forEach(function (p) { p.term.options.theme = THEMES[themeName]; });
   }
 
   // copyText prefers the async Clipboard API but falls back to a hidden textarea
@@ -400,18 +540,20 @@
   }
 
   async function copySelection() {
-    const sel = term.getSelection();
+    if (!activePane) return;
+    const sel = activePane.term.getSelection();
     if (!sel) return;
     await copyText(sel);
-    term.focus();
+    activePane.term.focus();
   }
 
   async function pasteClipboard() {
+    if (!activePane) return;
     if (navigator.clipboard && navigator.clipboard.readText) {
       try {
         const t = await navigator.clipboard.readText();
-        if (t) send('0', t);
-        term.focus();
+        if (t) activePane.send('0', t);
+        activePane.term.focus();
         return;
       } catch (e) { /* permission denied / unavailable: fall through to overlay */ }
     }
@@ -428,12 +570,12 @@
   }
   function closePasteOverlay() {
     $('paste-overlay').classList.add('hidden');
-    term.focus();
+    if (activePane) activePane.term.focus();
   }
   $('paste-cancel').onclick = closePasteOverlay;
   $('paste-send').onclick = function () {
     const v = $('paste-text').value;
-    if (v) send('0', v);
+    if (v && activePane) activePane.send('0', v);
     closePasteOverlay();
   };
 
@@ -443,27 +585,34 @@
 
   const MENU_ACTIONS = {
     copy: copySelection,
-    clear: function () { term.clear(); term.focus(); },
+    clear: function () { if (activePane) { activePane.term.clear(); activePane.term.focus(); } },
     'font-dec': function () { fontSize = Math.max(fontSize - 1, 8); applyFont(); },
     'font-inc': function () { fontSize = Math.min(fontSize + 1, 40); applyFont(); },
     theme: function () { themeName = themeName === 'dark' ? 'light' : 'dark'; applyTheme(); },
     reconnect: function () {
-      if (ws) { intentionalClose = true; try { ws.close(); } catch (e) {} }
-      reconnectDelay = 1000;
-      connect();
+      if (!activePane) return;
+      activePane.intentionalClose = true;
+      if (activePane.ws) { try { activePane.ws.close(); } catch (e) {} }
+      activePane.reconnectDelay = 1000;
+      activePane.connected = true;
+      activePane.connect();
     },
     disconnect: function () {
-      intentionalClose = true;
-      if (ws) { try { ws.close(); } catch (e) {} }
+      if (!activePane) return;
+      activePane.intentionalClose = true;
+      activePane.connGen++;
+      if (activePane.ws) { try { activePane.ws.close(); } catch (e) {} }
+      activePane.connected = false; // so revisiting this tab reconnects
       setStatus('off', 'disconnected');
     },
-    kill: function () { deleteSession(activeSid); },
+    kill: function () { if (activeSid) deleteSession(activeSid); },
     logout: function () {
       // Token is a stateless HMAC token, so logout just discards it client-side.
-      intentionalClose = true;
-      if (ws) { try { ws.close(); } catch (e) {} }
+      panes.forEach(function (p) { p.dispose(); });
+      panes.clear();
+      activePane = null;
       token = '';
-      localStorage.removeItem('rs_token');
+      clearToken();
       showLogin();
     },
   };
@@ -483,29 +632,13 @@
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenu(); });
 
-  // Ctrl/Cmd+Shift+C / V for copy / paste (don't steal a plain Ctrl+C — that's SIGINT).
-  term.attachCustomKeyEventHandler(function (e) {
-    if (e.type !== 'keydown') return true;
-    const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.shiftKey && (e.key === 'C' || e.key === 'c')) { copySelection(); return false; }
-    if (mod && e.shiftKey && (e.key === 'V' || e.key === 'v')) { pasteClipboard(); return false; }
-    return true;
-  });
-
-  // Auto-copy on selection (desktop / fine pointer only).
-  term.onSelectionChange(function () {
-    const sel = term.getSelection();
-    if (sel && sel.length && navigator.clipboard && window.matchMedia('(pointer: fine)').matches) {
-      navigator.clipboard.writeText(sel).catch(function () {});
-    }
-  });
-
   // --------------------------------------------------------------------------
   // Modifier keys (Ctrl / Shift / Alt) — three-state sticky behavior:
   //   released --(tap)--> latched  (applies to the next key, then auto-releases)
   //   released --(double-tap)--> locked  (applies to every key until tapped again)
   // sendKey() is the single path for both on-screen keys and soft-keyboard input
   // (via term.onData), so a latched/locked modifier transforms whatever comes next.
+  // The modifier UI is global (one keybar for whichever tab is active).
   // --------------------------------------------------------------------------
   const modState = { ctrl: 0, shift: 0, alt: 0 }; // 0 = released, 1 = latched, 2 = locked
   const modBtns = {};
@@ -566,7 +699,8 @@
   }
 
   function sendKey(data) {
-    send('0', applyModifiers(data));
+    if (!activePane) return;
+    activePane.send('0', applyModifiers(data));
     clearLatched();
   }
 
@@ -584,7 +718,7 @@
     b.textContent = label;
     b.className = 'mod';
     b.addEventListener('mousedown', function (e) { e.preventDefault(); });
-    b.addEventListener('click', function (e) { e.preventDefault(); toggleMod(name); term.focus(); });
+    b.addEventListener('click', function (e) { e.preventDefault(); toggleMod(name); if (activePane) activePane.term.focus(); });
     modBtns[name] = b;
     parent.appendChild(b);
   }
@@ -596,8 +730,8 @@
     b.addEventListener('mousedown', function (e) { e.preventDefault(); });
     b.addEventListener('click', function (e) {
       e.preventDefault();
-      if (raw) send('0', seq); else sendKey(seq);
-      term.focus();
+      if (raw) { if (activePane) activePane.send('0', seq); } else sendKey(seq);
+      if (activePane) activePane.term.focus();
     });
     parent.appendChild(b);
   }
@@ -636,7 +770,7 @@
     localStorage.setItem('rs_kb_open', kbOpen ? '1' : '0');
     applyKbOpen();
     doFit(); // the terminal height changed
-    term.focus();
+    if (activePane) activePane.term.focus();
   });
 
   applyKbOpen();
@@ -663,8 +797,8 @@
 
   // --------------------------------------------------------------------------
   // Touch scroll. We own one-finger vertical drags entirely (CSS sets
-  // touch-action: none on the terminal, so the browser never hijacks the drag)
-  // and route each notch of finger travel by what the running program wants:
+  // touch-action: none on the panes, so the browser never hijacks the drag) and
+  // route each notch of finger travel by what the running program wants:
   //   - If the app has mouse reporting on (claude code, vim, htop, …) OR runs in
   //     the alternate buffer, dispatch a wheel event on the terminal element:
   //     xterm forwards a mouse-wheel/arrow sequence and the APP scrolls its own
@@ -672,42 +806,47 @@
   //     scrollback for these apps — that only smears their in-place redraws and
   //     drags their status line off-screen.
   //   - Otherwise (a plain shell) scroll xterm's own scrollback via scrollLines().
-  // Doing this in JS (not native viewport panning) is what makes it work on mobile.
+  // One handler bound to the host reads the *active* pane's terminal, since only
+  // the active pane is visible/touchable.
   // --------------------------------------------------------------------------
   (function () {
-    const el = $('terminal');
+    const el = $('terminals');
     let tracking = false, lastY = 0, lastX = 0, step = 18;
 
     // 'app' (forward the wheel to the program) or 'scrollback' (scroll xterm's
     // own history). The decision lives in chooseScrollTarget (scroll-routing.js)
     // so it can be unit tested; here we just read the live xterm state.
     function scrollTarget() {
+      const t = activePane && activePane.term;
       let mode = 'none', buf = 'normal';
-      try { mode = term.modes.mouseTrackingMode; } catch (e) { /* keep 'none' */ }
-      try { buf = term.buffer.active.type; } catch (e) { /* keep 'normal' */ }
+      if (t) {
+        try { mode = t.modes.mouseTrackingMode; } catch (e) { /* keep 'none' */ }
+        try { buf = t.buffer.active.type; } catch (e) { /* keep 'normal' */ }
+      }
       return chooseScrollTarget(mode, buf);
     }
     // dir: +1 scrolls toward newer content, -1 toward older. DOM_DELTA_LINE with
     // deltaY ±1 makes xterm emit exactly one wheel notch; the finger coords keep
     // the mouse report on the right row.
     function emitWheel(dir) {
-      term.element.dispatchEvent(new WheelEvent('wheel', {
+      if (!activePane) return;
+      activePane.term.element.dispatchEvent(new WheelEvent('wheel', {
         deltaY: dir, deltaMode: 1, clientX: lastX, clientY: lastY,
         bubbles: true, cancelable: true,
       }));
     }
 
     el.addEventListener('touchstart', function (e) {
-      if (e.touches.length !== 1) { tracking = false; return; }
+      if (e.touches.length !== 1 || !activePane) { tracking = false; return; }
       tracking = true;
       lastX = e.touches[0].clientX;
       lastY = e.touches[0].clientY;
       // One wheel notch / scrollback line per rendered row of finger travel.
-      step = Math.max(8, Math.round(el.clientHeight / Math.max(term.rows, 1)));
+      step = Math.max(8, Math.round(el.clientHeight / Math.max(activePane.term.rows, 1)));
     }, { passive: true });
 
     el.addEventListener('touchmove', function (e) {
-      if (!tracking || e.touches.length !== 1) return;
+      if (!tracking || e.touches.length !== 1 || !activePane) return;
       e.preventDefault(); // we own the vertical drag
       const y = e.touches[0].clientY;
       lastX = e.touches[0].clientX;
@@ -716,7 +855,7 @@
       while (Math.abs(dy) >= step) {
         const dir = dy > 0 ? 1 : -1;
         lastY = y;
-        if (target === 'app') emitWheel(dir); else term.scrollLines(dir);
+        if (target === 'app') emitWheel(dir); else activePane.term.scrollLines(dir);
         dy -= dir * step;
       }
       lastY = y + dy; // carry the sub-step remainder into the next move
