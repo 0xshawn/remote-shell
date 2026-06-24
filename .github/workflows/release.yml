@@ -40,9 +40,23 @@ jobs:
           mkdir -p ../dist
           go build -ldflags="-s -w" -o "../dist/remote-shell-linux-${{ matrix.arch }}" .
 
-      - name: Checksum
+      # Self-extracting installer: install-binary.sh with the binary appended
+      # after the __RS_PAYLOAD__ marker. One file is the whole offline package.
+      - name: Assemble self-extracting installer
+        run: |
+          arch="${{ matrix.arch }}"
+          out="dist/remote-shell-installer-linux-$arch.sh"
+          cp install-binary.sh "$out"
+          printf '__RS_PAYLOAD__\n' >> "$out"
+          cat "dist/remote-shell-linux-$arch" >> "$out"
+          chmod +x "$out"
+
+      - name: Checksums
         working-directory: dist
-        run: sha256sum "remote-shell-linux-${{ matrix.arch }}" > "remote-shell-linux-${{ matrix.arch }}.sha256"
+        run: |
+          arch="${{ matrix.arch }}"
+          sha256sum "remote-shell-linux-$arch" > "remote-shell-linux-$arch.sha256"
+          sha256sum "remote-shell-installer-linux-$arch.sh" > "remote-shell-installer-linux-$arch.sh.sha256"
 
       - name: Publish to release
         if: startsWith(github.ref, 'refs/tags/')
@@ -51,3 +65,5 @@ jobs:
           files: |
             dist/remote-shell-linux-${{ matrix.arch }}
             dist/remote-shell-linux-${{ matrix.arch }}.sha256
+            dist/remote-shell-installer-linux-${{ matrix.arch }}.sh
+            dist/remote-shell-installer-linux-${{ matrix.arch }}.sh.sha256

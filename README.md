@@ -58,15 +58,18 @@ closing), and prints the generated password. The web terminal is the host user's
 own shell — no SSH hop. Override with `REMOTE_SHELL_VERSION=` / `PORT=`. See
 [`server/README.md`](server/README.md) for management + uninstall.
 
-**Offline / blocked network** (the server can't reach GitHub) — download the
-binary on any machine that can, copy it over, then hand it to the installer so it
-skips the download:
+**Offline / blocked network** (the server can't reach GitHub) — grab the
+**self-extracting installer** `remote-shell-installer-linux-amd64.sh` (or `-arm64`)
+from the [releases page](https://github.com/0xshawn/remote-shell/releases). It's
+this script with the binary baked in, so one file is the whole package — copy it
+over and run it; no network, no separate binary, no checkout:
 
 ```bash
-# grab remote-shell-linux-amd64 (or -arm64) from the releases page, scp it across, then:
-./install-binary.sh ./remote-shell-linux-amd64
-# or, pointing at it anywhere:  REMOTE_SHELL_BIN=/path/to/binary ./install-binary.sh
+bash remote-shell-installer-linux-amd64.sh
 ```
+
+Prefer the raw binary? Download `remote-shell-linux-amd64`, then
+`./install-binary.sh ./remote-shell-linux-amd64` (or set `REMOTE_SHELL_BIN=`).
 
 Run it directly instead (Go ≥ 1.26):
 

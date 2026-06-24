@@ -11,6 +11,12 @@
 # network): download the binary somewhere with access, copy it over, then point
 # this script at it — no download is attempted.
 #
+# The release also ships a self-extracting bundle named
+# remote-shell-installer-linux-<arch>.sh: this exact script with the binary
+# appended. Download that one file and run it — it carves out the binary and
+# installs it with no network and no separate files:
+#   bash remote-shell-installer-linux-amd64.sh
+#
 # It serves HTTPS itself (auto self-signed cert) on https://<host>:7443.
 # Safe to re-run (idempotent). Overrides:
 #   REMOTE_SHELL_VERSION=v1.2.3   REMOTE_SHELL_BIN=/path/to/binary   PORT=7443
@@ -44,18 +50,40 @@ fi
 bin="$bindir/remote-shell"
 mkdir -p "$bindir"
 
-# --- 2. Obtain the binary. A local file (manual download) wins over downloading,
-# so this works on hosts that can't reach GitHub. Source order: $1 arg, then
-# $REMOTE_SHELL_BIN, then ./remote-shell-linux-<arch> or ./remote-shell in cwd. ---
+# --- 2. Obtain the binary, in priority order:
+#   (a) a payload appended to THIS file — the release ships a self-extracting
+#       installer (this script + the binary), so one .sh is the whole package;
+#   (b) a local file you point at: $1, $REMOTE_SHELL_BIN, or
+#       ./remote-shell-linux-<arch> / ./remote-shell in the current directory;
+#   (c) otherwise, download it from GitHub.
+# (a) and (b) need no network access. ---
 src=""
-for cand in "${1:-}" "${REMOTE_SHELL_BIN:-}" "./$asset" "./remote-shell"; do
-	[ -n "$cand" ] && [ -f "$cand" ] && { src="$cand"; break; }
-done
+extracted=""
+
+# (a) Self-extracting payload. The marker line only exists when a binary was
+# appended at release time; the grep pattern below never matches its own source
+# line, so the plain checked-in script falls through to (b)/(c).
+payload_line=$(grep -an '^__RS_PAYLOAD__$' "$0" 2>/dev/null | head -1 | cut -d: -f1 || true)
+if [ -n "$payload_line" ]; then
+	src=$(mktemp)
+	extracted="$src"
+	tail -n +"$((payload_line + 1))" "$0" >"$src"
+	echo "extracted the embedded binary from this self-installer"
+fi
+
+# (b) Local file.
+if [ -z "$src" ]; then
+	for cand in "${1:-}" "${REMOTE_SHELL_BIN:-}" "./$asset" "./remote-shell"; do
+		[ -n "$cand" ] && [ -f "$cand" ] && { src="$cand"; break; }
+	done
+fi
 
 if [ -n "$src" ]; then
-	echo "installing local binary $src -> $bin"
+	echo "installing binary -> $bin"
 	install -m 0755 "$src" "$bin"
+	[ -n "$extracted" ] && rm -f "$extracted"
 else
+	# (c) Download from GitHub.
 	if [ "$VERSION" = "latest" ]; then
 		url="https://github.com/$REPO_SLUG/releases/latest/download/$asset"
 	else
@@ -66,9 +94,10 @@ else
 	if ! curl -fSL "$url" -o "$tmp"; then
 		rm -f "$tmp"
 		echo "error: download failed ($url)" >&2
-		echo "  If GitHub is unreachable from this host, download $asset manually from" >&2
+		echo "  If GitHub is unreachable from this host, grab the self-extracting installer" >&2
+		echo "  remote-shell-installer-linux-$ARCH.sh (or $asset) from:" >&2
 		echo "    https://github.com/$REPO_SLUG/releases" >&2
-		echo "  copy it to this server, then re-run:  ./install-binary.sh ./$asset" >&2
+		echo "  copy it over, then run the installer, or:  ./install-binary.sh ./$asset" >&2
 		exit 1
 	fi
 	chmod +x "$tmp"
@@ -186,3 +215,7 @@ if [ -n "$pw" ]; then
 else
 	echo "  password: pin AUTH_PASS, or read it from $pwfile"
 fi
+
+# Stop here: a self-extracting bundle appends its binary payload below this line
+# (after the __RS_PAYLOAD__ marker), and execution must never reach those bytes.
+exit 0
