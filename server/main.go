@@ -203,6 +203,13 @@ func (s *server) serveConn(sess *session, c *conn, ws *websocket.Conn) {
 }
 
 func main() {
+	// Dispatch the uninstall subcommand before flag parsing, which would
+	// otherwise treat "uninstall" as a positional arg and ignore it.
+	if len(os.Args) > 1 && os.Args[1] == "uninstall" {
+		runUninstall(os.Args[2:])
+		return
+	}
+
 	cfg := parseConfig()
 	logger = newLogger(cfg.logLevel)
 

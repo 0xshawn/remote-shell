@@ -126,6 +126,13 @@ SSH hop). The generated password, token secret, and self-signed cert persist und
 `~/.remote-shell`. Override the release with `REMOTE_SHELL_VERSION=`, the port with
 `PORT=`. Prebuilt binaries come from the `release.yml` workflow (tag `v*`).
 
+**Change the port:** set `PORT=` when installing (`PORT=9443 ./install-binary.sh`, or
+`PORT=9443 bash remote-shell-installer-linux-amd64.sh`). For an **already-installed**
+service, edit `Environment=PORT=` in its unit file
+(`/etc/systemd/system/remote-shell.service`, or `~/.config/systemd/user/remote-shell.service`
+for a user service), then `systemctl daemon-reload && systemctl restart remote-shell`
+(add `--user` for a user service). Running by hand: `PORT=9443 ./remote-shell` (or `--port 9443`).
+
 **No GitHub access** (private repo or blocked network) — grab the self-extracting
 installer `remote-shell-installer-linux-<arch>.sh` from the releases page (this
 script with the binary appended) and run it; it carves out the binary and sets up
@@ -144,23 +151,20 @@ To run the binary by hand instead:
 SSL_AUTO=1 PORT=8443 ./remote-shell      # https://localhost:8443
 ```
 
-**Uninstall:** the installer runs it as a **system** service (root install), a
-**user** service (non-root), or a bare **nohup** process — and `sudo systemctl`
-only sees the system one. Detect which you have, then remove it:
+**Uninstall:** the binary cleans up after itself — it stops the systemd service
+(system or user scope), removes the binary, and deletes `~/.remote-shell` (password,
+token secret, self-signed cert):
 
 ```bash
-systemctl --user status remote-shell ; pgrep -af remote-shell    # which one is it?
-
-# then stop the matching one:
-sudo systemctl disable --now remote-shell        # system service
-systemctl --user disable --now remote-shell      # user service
-kill "$(cat ~/.remote-shell/remote-shell.pid)"   # nohup (no systemd)
-
-# and clean up the unit (if any), the binary, and the persisted state:
-sudo rm -f /etc/systemd/system/remote-shell.service ~/.config/systemd/user/remote-shell.service
-rm -f /usr/local/bin/remote-shell ~/.local/bin/remote-shell
-rm -rf ~/.remote-shell
+remote-shell uninstall          # add -y to skip the confirmation prompt
+# or, if the binary is already gone:  ./install-binary.sh uninstall
 ```
+
+Run with `sudo` for a system (root) install so root-owned units/binaries can be
+removed. To tear it down by hand instead — detect the install type
+(`systemctl --user status remote-shell` / `pgrep -af remote-shell`), stop the matching
+unit/process, then remove the binary (`/usr/local/bin` or `~/.local/bin`) and
+`~/.remote-shell`. The repo [README](../README.md#uninstall) has the full manual steps.
 
 ## Logging into the host instead of the container
 

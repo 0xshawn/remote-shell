@@ -55,8 +55,10 @@ curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install-b
 `install-binary.sh` downloads the prebuilt binary for your architecture, runs it
 under **systemd** when available (else a `nohup` process that survives the shell
 closing), and prints the generated password. The web terminal is the host user's
-own shell — no SSH hop. Override with `REMOTE_SHELL_VERSION=` / `PORT=`. See
-[`server/README.md`](server/README.md) for management + uninstall.
+own shell — no SSH hop. Serve on a **different port** with `PORT=` (e.g.
+`PORT=9443 bash remote-shell-installer-linux-amd64.sh`); pin a version with
+`REMOTE_SHELL_VERSION=`. See [`server/README.md`](server/README.md) for changing
+the port of an existing install, management, and uninstall.
 
 **Offline / blocked network** (the server can't reach GitHub) — grab the
 **self-extracting installer** `remote-shell-installer-linux-amd64.sh` (or `-arm64`)
@@ -89,39 +91,43 @@ Then point the app at your server's URL and log in with the same credentials.
 
 ## Uninstall
 
-Removes everything `install.sh` created — containers, the volume (secrets + host
-SSH key), the image, the authorized key, and the checkout:
+Each installer has an `uninstall` subcommand that tears down its own deployment.
+
+**Docker** — removes the containers, the volume (secrets + host SSH key), the
+image, and the authorized host key:
 
 ```bash
-docker compose -f ~/.remote-shell/deploy/docker-compose.yml down -v  # stop containers + drop the volume
-docker image rm remote-shell:latest                                  # remove the built image
-sed -i '/remote-shell-container/d' ~/.ssh/authorized_keys            # revoke the container's host SSH key
-rm -rf ~/.remote-shell                                               # remove the checkout
+~/.remote-shell/install.sh uninstall      # from the checkout (default ~/.remote-shell)
 ```
 
-(Adjust the path if you set `REMOTE_SHELL_DIR`; prefix `sudo` if Docker needs it.)
-
-For a **binary install**, first check *how* it runs — `install-binary.sh` sets up
-a **system** service (when installed as root), a **user** service (as a non-root
-user), or a bare **nohup** process (no systemd). `sudo systemctl` only sees the
-system one, so "Unit could not be found" usually means it's a user service or nohup:
+**Binary** — removes the systemd service (system or user), the binary, and
+`~/.remote-shell` (password, token secret, self-signed cert):
 
 ```bash
-systemctl --user status remote-shell    # user service?  (system: sudo systemctl status remote-shell)
-pgrep -af remote-shell                   # is it running, and how was it launched?
+remote-shell uninstall                    # the binary cleans up after itself (add -y to skip the prompt)
+# or, if the binary is already gone:  ./install-binary.sh uninstall
 ```
 
-Then stop the **matching** one and remove the binary + persisted state:
+Both are best-effort and safe to re-run. For a **system** (root) install, run them
+with `sudo` so root-owned units/binaries can be removed.
+
+<details><summary>Manual teardown (binary), if you'd rather do it by hand</summary>
+
+`install-binary.sh` installs a **system** service (as root), a **user** service
+(non-root), or a bare **nohup** process. `sudo systemctl` only sees the system one
+— "Unit could not be found" usually means a user service or nohup. Detect, then remove:
 
 ```bash
-# pick the line that matches what you found above:
-sudo systemctl disable --now remote-shell && sudo rm -f /etc/systemd/system/remote-shell.service   # system service
-systemctl --user disable --now remote-shell && rm -f ~/.config/systemd/user/remote-shell.service   # user service
-kill "$(cat ~/.remote-shell/remote-shell.pid)" 2>/dev/null                                         # nohup, no systemd
-
-rm -f /usr/local/bin/remote-shell ~/.local/bin/remote-shell   # the binary (whichever path exists)
-rm -rf ~/.remote-shell                                        # password, token secret, self-signed cert
+systemctl --user status remote-shell ; pgrep -af remote-shell    # which one is it?
+# stop the matching one:
+sudo systemctl disable --now remote-shell && sudo rm -f /etc/systemd/system/remote-shell.service
+systemctl --user disable --now remote-shell && rm -f ~/.config/systemd/user/remote-shell.service
+kill "$(cat ~/.remote-shell/remote-shell.pid)" 2>/dev/null
+# then:
+rm -f /usr/local/bin/remote-shell ~/.local/bin/remote-shell
+rm -rf ~/.remote-shell
 ```
 
 (If `systemctl --user` reports "Failed to connect to bus" over SSH, run
 `export XDG_RUNTIME_DIR=/run/user/$(id -u)` first.)
+</details>

@@ -26,6 +26,47 @@ find_repo() {
 }
 
 repo=$(find_repo || true)
+
+# `./install.sh uninstall` tears down the deployment and exits. Handled before
+# any curl-fetch/clone so uninstalling never pulls the repo onto disk.
+if [ "${1:-}" = "uninstall" ]; then
+	# Locate the compose file from the checkout, else the fetched copy.
+	if [ -n "$repo" ] && [ -f "$repo/deploy/docker-compose.yml" ]; then
+		composefile="$repo/deploy/docker-compose.yml"
+	elif [ -f "$DIR/deploy/docker-compose.yml" ]; then
+		composefile="$DIR/deploy/docker-compose.yml"
+	else
+		echo "error: no docker-compose.yml found — nothing to uninstall" >&2
+		exit 1
+	fi
+
+	# Reuse the docker-vs-sudo-docker detection.
+	if docker info >/dev/null 2>&1; then
+		DOCKER="docker"
+	elif sudo docker info >/dev/null 2>&1; then
+		DOCKER="sudo docker"
+	else
+		echo "error: docker is not usable here — add your user to the 'docker' group or enable sudo" >&2
+		exit 1
+	fi
+
+	# Same SUDO_USER-aware target as the install flow, for revoking the host key.
+	target_user="${SUDO_USER:-$(id -un)}"
+	target_home=$(getent passwd "$target_user" | cut -d: -f6 || true)
+	[ -n "$target_home" ] || target_home="$HOME"
+
+	echo "tearing down remote-shell..."
+	$DOCKER compose -f "$composefile" down -v || true
+	$DOCKER image rm remote-shell:latest >/dev/null 2>&1 || true
+	if [ -f "$target_home/.ssh/authorized_keys" ]; then
+		sed -i '/remote-shell-container/d' "$target_home/.ssh/authorized_keys" || true
+		echo "revoked the container's key from $target_home/.ssh/authorized_keys"
+	fi
+	echo "remote-shell removed (containers, volume, image, host key)."
+	echo "to delete the checkout: rm -rf \"${repo:-$DIR}\""
+	exit 0
+fi
+
 if [ -z "$repo" ]; then
 	echo "fetching remote-shell -> $DIR (branch: $BRANCH)"
 	if command -v git >/dev/null 2>&1; then
@@ -121,6 +162,10 @@ url_host=$(grep -E '^SERVER_NAME=' .env | tail -1 | cut -d= -f2- | tr -d ' ' || 
 host_note=""
 if [ -z "$url_host" ] || [ "$url_host" = "_" ]; then
 	url_host=$(curl -fsS --max-time 3 https://1.1.1.1/cdn-cgi/trace 2>/dev/null | awk -F= '/^ip=/{print $2}' || true)
+	# Second public-IP source if Cloudflare's trace is unreachable.
+	if [ -z "$url_host" ]; then
+		url_host=$(curl -fsS --max-time 3 https://icanhazip.com 2>/dev/null || true)
+	fi
 	if [ -n "$url_host" ]; then
 		host_note="   (public IP — detected; use your domain if you have one)"
 	else

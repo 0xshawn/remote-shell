@@ -40,6 +40,55 @@ target_user="${SUDO_USER:-$(id -un)}"
 target_home=$(getent passwd "$target_user" | cut -d: -f6 || true)
 [ -n "$target_home" ] || target_home="$HOME"
 
+# --- 0. Uninstall: tear down whichever install type is present (best-effort,
+# usually only one applies) and exit. Handled before binary resolution so the
+# "uninstall" arg is never mistaken for a local binary path. ---
+if [ "${1:-}" = "uninstall" ]; then
+	# Run a privileged command, via sudo when not root and sudo exists.
+	priv() {
+		if [ "$(id -u)" = 0 ]; then "$@"
+		elif command -v sudo >/dev/null 2>&1; then sudo "$@"
+		else return 1; fi
+	}
+
+	echo "uninstalling remote-shell..."
+
+	# System service (needs root).
+	if [ "$(id -u)" = 0 ] || command -v sudo >/dev/null 2>&1; then
+		priv systemctl disable --now remote-shell 2>/dev/null || true
+		priv rm -f /etc/systemd/system/remote-shell.service 2>/dev/null || true
+		priv systemctl daemon-reload 2>/dev/null || true
+		echo "  stopped/removed system service (if present)"
+	else
+		echo "  note: re-run with sudo to remove a system service / /usr/local/bin binary"
+	fi
+
+	# User service.
+	systemctl --user disable --now remote-shell 2>/dev/null || true
+	rm -f "$HOME/.config/systemd/user/remote-shell.service" 2>/dev/null || true
+	systemctl --user daemon-reload 2>/dev/null || true
+	echo "  stopped/removed user service (if present)"
+
+	# nohup background process.
+	pidf="$HOME/.remote-shell/remote-shell.pid"
+	if [ -f "$pidf" ] && kill -0 "$(cat "$pidf" 2>/dev/null)" 2>/dev/null; then
+		kill "$(cat "$pidf")" 2>/dev/null || true
+		echo "  killed background process (pid $(cat "$pidf"))"
+	fi
+
+	# Binaries (both possible locations).
+	priv rm -f /usr/local/bin/remote-shell 2>/dev/null || true
+	rm -f "$HOME/.local/bin/remote-shell" 2>/dev/null || true
+	echo "  removed binary from /usr/local/bin and ~/.local/bin (if present)"
+
+	# State dir (secrets, token secret, self-signed cert).
+	rm -rf "$HOME/.remote-shell" 2>/dev/null || true
+	echo "  removed state dir $HOME/.remote-shell (if present)"
+
+	echo "uninstall complete."
+	exit 0
+fi
+
 # --- 1. Choose where to install. ---
 asset="remote-shell-linux-$ARCH"
 if [ "$(id -u)" = 0 ]; then
@@ -194,6 +243,8 @@ done
 # Best-effort public IP (Cloudflare trace works on cloud VMs whose public IP
 # isn't bound to a local interface); fall back to the internal IP when offline.
 url_host=$(curl -fsS --max-time 3 https://1.1.1.1/cdn-cgi/trace 2>/dev/null | awk -F= '/^ip=/{print $2}' || true)
+# Second public-IP attempt: icanhazip returns the bare IP; $() strips the newline.
+[ -n "$url_host" ] || url_host=$(curl -fsS --max-time 3 https://icanhazip.com 2>/dev/null || true)
 if [ -n "$url_host" ]; then
 	host_note="   (public IP — detected; use your domain if you have one)"
 else
