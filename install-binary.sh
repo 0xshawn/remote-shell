@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Binary install: download the prebuilt, self-contained remote-shell binary and
-# run it in the background (surviving the shell that started it). No Docker, no
-# clone, no Go. Run either way:
+# Binary install: install the self-contained remote-shell binary and run it in
+# the background (surviving the shell that started it). No Docker, no clone, no
+# Go. Run any of:
 #
 #   curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install-binary.sh | bash
-#   ./install-binary.sh          # from a checkout
+#   ./install-binary.sh                              # download from GitHub, then install
+#   ./install-binary.sh ./remote-shell-linux-amd64   # install a binary you already have
+#
+# Use the last form when this host can't reach GitHub (private repo / blocked
+# network): download the binary somewhere with access, copy it over, then point
+# this script at it — no download is attempted.
 #
 # It serves HTTPS itself (auto self-signed cert) on https://<host>:7443.
 # Safe to re-run (idempotent). Overrides:
-#   REMOTE_SHELL_VERSION=v1.2.3   (default: latest)   PORT=7443
+#   REMOTE_SHELL_VERSION=v1.2.3   REMOTE_SHELL_BIN=/path/to/binary   PORT=7443
 set -euo pipefail
 
 REPO_SLUG="0xshawn/remote-shell"
@@ -29,34 +34,46 @@ target_user="${SUDO_USER:-$(id -un)}"
 target_home=$(getent passwd "$target_user" | cut -d: -f6 || true)
 [ -n "$target_home" ] || target_home="$HOME"
 
-# --- 1. Resolve the download URL + install location. ---
+# --- 1. Choose where to install. ---
 asset="remote-shell-linux-$ARCH"
-if [ "$VERSION" = "latest" ]; then
-	url="https://github.com/$REPO_SLUG/releases/latest/download/$asset"
-else
-	url="https://github.com/$REPO_SLUG/releases/download/$VERSION/$asset"
-fi
-
 if [ "$(id -u)" = 0 ]; then
 	bindir="/usr/local/bin"
 else
 	bindir="$HOME/.local/bin"
 fi
 bin="$bindir/remote-shell"
-
-# --- 2. Download the binary. ---
-echo "downloading $asset ($VERSION) -> $bin"
 mkdir -p "$bindir"
-tmp=$(mktemp)
-if ! curl -fSL "$url" -o "$tmp"; then
-	rm -f "$tmp"
-	echo "error: download failed ($url)" >&2
-	echo "  No matching release asset yet? Publish one by pushing a tag:" >&2
-	echo "    git tag v0.1.0 && git push origin v0.1.0" >&2
-	exit 1
+
+# --- 2. Obtain the binary. A local file (manual download) wins over downloading,
+# so this works on hosts that can't reach GitHub. Source order: $1 arg, then
+# $REMOTE_SHELL_BIN, then ./remote-shell-linux-<arch> or ./remote-shell in cwd. ---
+src=""
+for cand in "${1:-}" "${REMOTE_SHELL_BIN:-}" "./$asset" "./remote-shell"; do
+	[ -n "$cand" ] && [ -f "$cand" ] && { src="$cand"; break; }
+done
+
+if [ -n "$src" ]; then
+	echo "installing local binary $src -> $bin"
+	install -m 0755 "$src" "$bin"
+else
+	if [ "$VERSION" = "latest" ]; then
+		url="https://github.com/$REPO_SLUG/releases/latest/download/$asset"
+	else
+		url="https://github.com/$REPO_SLUG/releases/download/$VERSION/$asset"
+	fi
+	echo "downloading $asset ($VERSION) -> $bin"
+	tmp=$(mktemp)
+	if ! curl -fSL "$url" -o "$tmp"; then
+		rm -f "$tmp"
+		echo "error: download failed ($url)" >&2
+		echo "  If GitHub is unreachable from this host, download $asset manually from" >&2
+		echo "    https://github.com/$REPO_SLUG/releases" >&2
+		echo "  copy it to this server, then re-run:  ./install-binary.sh ./$asset" >&2
+		exit 1
+	fi
+	chmod +x "$tmp"
+	mv -f "$tmp" "$bin"
 fi
-chmod +x "$tmp"
-mv -f "$tmp" "$bin"
 
 # --- 3. Run it in the background so it survives the shell closing. ---
 have_systemd() { command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; }
@@ -132,13 +149,18 @@ else
 	run_msg="background pid $(cat "$pidf") (no systemd; will NOT restart on reboot) — log: $logf, stop: kill \$(cat $pidf)"
 fi
 
-# --- 4. Surface the password (generated on first boot) + URL. ---
+# --- 4. Wait until it answers, then surface the password (generated on first
+# boot) + URL. The health probe also catches a wrong-arch binary or a port clash. ---
 pwfile="$run_home/.remote-shell/password"
 pw=""
-for _ in $(seq 1 20); do
-	[ -s "$pwfile" ] && { pw=$(cat "$pwfile"); break; }
+up=""
+for _ in $(seq 1 30); do
+	curl -fsk --max-time 2 "https://localhost:$PORT/healthz" >/dev/null 2>&1 && up=1
+	[ -s "$pwfile" ] && pw=$(cat "$pwfile")
+	[ -n "$up" ] && break
 	sleep 0.5
 done
+[ -n "$up" ] || echo "warning: server did not answer on https://localhost:$PORT yet — check it with: $run_msg"
 
 # Best-effort public IP (Cloudflare trace works on cloud VMs whose public IP
 # isn't bound to a local interface); fall back to the internal IP when offline.

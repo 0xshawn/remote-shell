@@ -126,6 +126,15 @@ SSH hop). The generated password, token secret, and self-signed cert persist und
 `~/.remote-shell`. Override the release with `REMOTE_SHELL_VERSION=`, the port with
 `PORT=`. Prebuilt binaries come from the `release.yml` workflow (tag `v*`).
 
+**No GitHub access** (private repo or blocked network) — download the binary on a
+machine that can reach GitHub, copy it to the server, and hand it to the installer,
+which then skips the download and just sets up the background service:
+
+```bash
+./install-binary.sh ./remote-shell-linux-amd64
+#   or: REMOTE_SHELL_BIN=/path/to/remote-shell-linux-amd64 ./install-binary.sh
+```
+
 To run the binary by hand instead:
 
 ```bash
