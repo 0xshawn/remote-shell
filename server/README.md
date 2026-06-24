@@ -144,8 +144,23 @@ To run the binary by hand instead:
 SSL_AUTO=1 PORT=8443 ./remote-shell      # https://localhost:8443
 ```
 
-**Uninstall:** `systemctl disable --now remote-shell` (add `--user` for a user
-service), remove the unit file + the binary, then `rm -rf ~/.remote-shell`.
+**Uninstall:** the installer runs it as a **system** service (root install), a
+**user** service (non-root), or a bare **nohup** process — and `sudo systemctl`
+only sees the system one. Detect which you have, then remove it:
+
+```bash
+systemctl --user status remote-shell ; pgrep -af remote-shell    # which one is it?
+
+# then stop the matching one:
+sudo systemctl disable --now remote-shell        # system service
+systemctl --user disable --now remote-shell      # user service
+kill "$(cat ~/.remote-shell/remote-shell.pid)"   # nohup (no systemd)
+
+# and clean up the unit (if any), the binary, and the persisted state:
+sudo rm -f /etc/systemd/system/remote-shell.service ~/.config/systemd/user/remote-shell.service
+rm -f /usr/local/bin/remote-shell ~/.local/bin/remote-shell
+rm -rf ~/.remote-shell
+```
 
 ## Logging into the host instead of the container
 

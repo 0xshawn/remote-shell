@@ -101,11 +101,27 @@ rm -rf ~/.remote-shell                                               # remove th
 
 (Adjust the path if you set `REMOTE_SHELL_DIR`; prefix `sudo` if Docker needs it.)
 
-For a **binary install**, remove the service, binary, and persisted state instead:
+For a **binary install**, first check *how* it runs — `install-binary.sh` sets up
+a **system** service (when installed as root), a **user** service (as a non-root
+user), or a bare **nohup** process (no systemd). `sudo systemctl` only sees the
+system one, so "Unit could not be found" usually means it's a user service or nohup:
 
 ```bash
-sudo systemctl disable --now remote-shell                            # user install: systemctl --user disable --now remote-shell
-sudo rm -f /etc/systemd/system/remote-shell.service /usr/local/bin/remote-shell
-#   user install: rm -f ~/.config/systemd/user/remote-shell.service ~/.local/bin/remote-shell
-rm -rf ~/.remote-shell                                               # secrets + self-signed cert
+systemctl --user status remote-shell    # user service?  (system: sudo systemctl status remote-shell)
+pgrep -af remote-shell                   # is it running, and how was it launched?
 ```
+
+Then stop the **matching** one and remove the binary + persisted state:
+
+```bash
+# pick the line that matches what you found above:
+sudo systemctl disable --now remote-shell && sudo rm -f /etc/systemd/system/remote-shell.service   # system service
+systemctl --user disable --now remote-shell && rm -f ~/.config/systemd/user/remote-shell.service   # user service
+kill "$(cat ~/.remote-shell/remote-shell.pid)" 2>/dev/null                                         # nohup, no systemd
+
+rm -f /usr/local/bin/remote-shell ~/.local/bin/remote-shell   # the binary (whichever path exists)
+rm -rf ~/.remote-shell                                        # password, token secret, self-signed cert
+```
+
+(If `systemctl --user` reports "Failed to connect to bus" over SSH, run
+`export XDG_RUNTIME_DIR=/run/user/$(id -u)` first.)
