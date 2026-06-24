@@ -4,6 +4,11 @@
 # Go build output
 /server/remote-shell
 
+# Frontend staged into the server package for embedding (release build only).
+# Keep the placeholder that makes //go:embed compile.
+/server/web/*
+!/server/web/.gitkeep
+
 # Local environment / secrets
 .env
 

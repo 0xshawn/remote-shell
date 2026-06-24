@@ -22,6 +22,7 @@ type config struct {
 	tokenSecret       string
 	sslKey            string
 	sslCert           string
+	sslAuto           bool
 	sshHost           string
 	sshUser           string
 	sshPort           int
@@ -47,6 +48,14 @@ func envOrInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+func envTruthy(key string) bool {
+	switch strings.ToLower(os.Getenv(key)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 func randHex(n int) string {
@@ -107,6 +116,7 @@ func parseConfig() *config {
 	tokenSecret := fs.String("token-secret", envOr("TOKEN_SECRET", ""), "secret used to sign session tokens")
 	sslKey := fs.String("ssl-key", envOr("SSL_KEY", ""), "TLS private key (enables built-in HTTPS)")
 	sslCert := fs.String("ssl-cert", envOr("SSL_CERT", ""), "TLS certificate (enables built-in HTTPS)")
+	sslAuto := fs.Bool("ssl-auto", envTruthy("SSL_AUTO"), "auto-generate+persist a self-signed cert and serve HTTPS (when no --ssl-cert/--ssl-key)")
 	sshHost := fs.String("ssh-host", envOr("SSH_HOST", ""), "SSH into this host instead of a local shell")
 	sshUser := fs.String("ssh-user", envOr("SSH_USER", ""), "SSH username (required with --ssh-host)")
 	sshPort := fs.Int("ssh-port", envOrInt("SSH_PORT", 22), "SSH port")
@@ -154,6 +164,7 @@ func parseConfig() *config {
 		tokenSecret:       secret,
 		sslKey:            *sslKey,
 		sslCert:           *sslCert,
+		sslAuto:           *sslAuto,
 		sshHost:           *sshHost,
 		sshUser:           *sshUser,
 		sshPort:           *sshPort,

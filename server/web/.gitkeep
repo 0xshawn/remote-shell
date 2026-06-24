@@ -1,0 +1,4 @@
+# Placeholder so `//go:embed all:web` (web_embed.go) always compiles.
+# The real frontend lives in the repo-root web/ directory; the release build
+# (.github/workflows/release.yml) stages it here before `go build` so the binary
+# is self-contained. Everything else in this directory is gitignored.

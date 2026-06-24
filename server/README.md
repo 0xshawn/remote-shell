@@ -100,6 +100,41 @@ redirects). `SERVER_NAME` in `.env` sets the nginx domain (empty = catch-all `_`
 - **Plain `docker compose`:** once `.env`, certs, and the host key are in place,
   `cd deploy && docker compose up -d` works without `install.sh`.
 
+## Run as a binary (no Docker)
+
+The server compiles to a single self-contained binary — the `web/` frontend is
+**embedded** (`web_embed.go`) and it serves its own HTTPS via an auto-generated,
+persisted self-signed cert (`--ssl-auto`, `selfsigned.go`). One command, from any
+host, no clone or Go needed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install-binary.sh | bash
+# open the printed https://<host>:7443
+```
+
+[`install-binary.sh`](../install-binary.sh) downloads the prebuilt binary for your
+architecture and runs it in the background so it survives the shell closing:
+
+- **systemd** when available — a system service (run as your user) if root, else a
+  per-user service with linger. Manage it with
+  `systemctl status remote-shell` / `journalctl -u remote-shell -f` (add `--user`
+  for a user service). Restarts on crash and across reboot.
+- **`nohup`** fallback otherwise — survives logout but not a reboot.
+
+It runs in local-shell mode, so the web terminal is the host user's own shell (no
+SSH hop). The generated password, token secret, and self-signed cert persist under
+`~/.remote-shell`. Override the release with `REMOTE_SHELL_VERSION=`, the port with
+`PORT=`. Prebuilt binaries come from the `release.yml` workflow (tag `v*`).
+
+To run the binary by hand instead:
+
+```bash
+SSL_AUTO=1 PORT=7443 ./remote-shell      # https://localhost:7443
+```
+
+**Uninstall:** `systemctl disable --now remote-shell` (add `--user` for a user
+service), remove the unit file + the binary, then `rm -rf ~/.remote-shell`.
+
 ## Logging into the host instead of the container
 
 By default the web terminal is the shell **inside** the container. To make it the
@@ -142,6 +177,7 @@ echo "from=\"172.16.0.0/12\" $PUB" >> ~/.ssh/authorized_keys
 | `--password` | `AUTH_PASS` | *(random)* | Auth password |
 | `--token-secret` | `TOKEN_SECRET` | *(random)* | Secret for signing tokens — set a stable one in prod |
 | `--ssl-key` / `--ssl-cert` | `SSL_KEY` / `SSL_CERT` | – | Enable built-in HTTPS |
+| `--ssl-auto` | `SSL_AUTO` | – | Auto-generate + persist a self-signed cert and serve HTTPS (when no certs are given) |
 | `--ssh-host/user/port/key` | `SSH_*` | – | SSH into the host instead of a local shell |
 | `--timeout` | `SESSION_TIMEOUT` | `20160` | Reap a detached+idle session after N minutes (default 20160 = 14 days; 0 = never) |
 | `--max-sessions` | `MAX_SESSIONS` | `0` | Cap concurrent sessions (0 = unlimited) |

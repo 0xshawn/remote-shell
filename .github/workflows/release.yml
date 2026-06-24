@@ -1,0 +1,53 @@
+name: release
+
+# Cross-compile the self-contained binary (web/ embedded) and attach it to a
+# GitHub Release so `install-binary.sh` can download it — no Go on the server.
+# Tag a version (e.g. `git tag v1.0.0 && git push --tags`) to publish.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: # build without publishing, to test the matrix
+
+permissions:
+  contents: write # create the release + upload assets
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # Embedding can't reach ../web (go.mod is rooted at server/), so stage the
+      # real frontend into server/web/ before building. See server/web_embed.go.
+      - name: Stage web assets for embedding
+        run: cp -a web/. server/web/
+
+      - name: Build
+        working-directory: server
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          mkdir -p ../dist
+          go build -ldflags="-s -w" -o "../dist/remote-shell-linux-${{ matrix.arch }}" .
+
+      - name: Checksum
+        working-directory: dist
+        run: sha256sum "remote-shell-linux-${{ matrix.arch }}" > "remote-shell-linux-${{ matrix.arch }}.sha256"
+
+      - name: Publish to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/remote-shell-linux-${{ matrix.arch }}
+            dist/remote-shell-linux-${{ matrix.arch }}.sha256

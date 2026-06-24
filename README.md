@@ -44,6 +44,20 @@ By default the web terminal logs into the **host** shell over SSH (not the
 container). To pin credentials, use real TLS certs, or switch to a plain
 container shell, see [`server/README.md`](server/README.md).
 
+**Binary** (no Docker) — download one self-contained binary and run it in the
+background; it serves its own HTTPS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install-binary.sh | bash
+# open the printed https://<host>:7443  (self-signed cert → accept the warning)
+```
+
+`install-binary.sh` downloads the prebuilt binary for your architecture, runs it
+under **systemd** when available (else a `nohup` process that survives the shell
+closing), and prints the generated password. The web terminal is the host user's
+own shell — no SSH hop. Override with `REMOTE_SHELL_VERSION=` / `PORT=`. See
+[`server/README.md`](server/README.md) for management + uninstall.
+
 Run it directly instead (Go ≥ 1.26):
 
 ```bash
@@ -73,3 +87,12 @@ rm -rf ~/.remote-shell                                               # remove th
 ```
 
 (Adjust the path if you set `REMOTE_SHELL_DIR`; prefix `sudo` if Docker needs it.)
+
+For a **binary install**, remove the service, binary, and persisted state instead:
+
+```bash
+sudo systemctl disable --now remote-shell                            # user install: systemctl --user disable --now remote-shell
+sudo rm -f /etc/systemd/system/remote-shell.service /usr/local/bin/remote-shell
+#   user install: rm -f ~/.config/systemd/user/remote-shell.service ~/.local/bin/remote-shell
+rm -rf ~/.remote-shell                                               # secrets + self-signed cert
+```

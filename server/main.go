@@ -230,7 +230,7 @@ func main() {
 	mux.HandleFunc("GET /api/sessions", srv.handleSessions)
 	mux.HandleFunc("DELETE /api/sessions", srv.handleSessionDelete)
 	mux.HandleFunc("/ws", srv.handleWS)
-	mux.Handle("/", noCache(http.FileServer(http.Dir(cfg.webDir))))
+	mux.Handle("/", noCache(webHandler(cfg)))
 
 	// Idle-session reaper.
 	if cfg.timeoutMin > 0 {
@@ -241,6 +241,23 @@ func main() {
 				srv.mgr.reap()
 			}
 		}()
+	}
+
+	// Auto self-signed HTTPS: when requested without an explicit cert/key, generate
+	// and persist a pair so the bare binary serves HTTPS with no nginx in front.
+	if cfg.sslAuto && (cfg.sslCert == "" || cfg.sslKey == "") {
+		home, _ := os.UserHomeDir()
+		dir := persistDir(home)
+		if dir == "" {
+			dir = os.TempDir()
+		}
+		cert, key, err := ensureSelfSigned(dir)
+		if err != nil {
+			logger.Errorf("auto TLS: %v", err)
+			os.Exit(1)
+		}
+		cfg.sslCert, cfg.sslKey = cert, key
+		logger.Infof("auto TLS: self-signed cert at %s", dir)
 	}
 
 	httpSrv := &http.Server{Addr: cfg.host + ":" + strconv.Itoa(cfg.port), Handler: mux}
