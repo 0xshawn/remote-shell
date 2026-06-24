@@ -109,7 +109,7 @@ host, no clone or Go needed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install-binary.sh | bash
-# open the printed https://<host>:7443
+# open the printed https://<host>:8443
 ```
 
 [`install-binary.sh`](../install-binary.sh) downloads the prebuilt binary for your
@@ -141,7 +141,7 @@ Or, with just the raw binary: `./install-binary.sh ./remote-shell-linux-amd64`
 To run the binary by hand instead:
 
 ```bash
-SSL_AUTO=1 PORT=7443 ./remote-shell      # https://localhost:7443
+SSL_AUTO=1 PORT=8443 ./remote-shell      # https://localhost:8443
 ```
 
 **Uninstall:** `systemctl disable --now remote-shell` (add `--user` for a user

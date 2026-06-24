@@ -49,7 +49,7 @@ background; it serves its own HTTPS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/0xshawn/remote-shell/main/install-binary.sh | bash
-# open the printed https://<host>:7443  (self-signed cert → accept the warning)
+# open the printed https://<host>:8443  (self-signed cert → accept the warning)
 ```
 
 `install-binary.sh` downloads the prebuilt binary for your architecture, runs it

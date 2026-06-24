@@ -17,14 +17,14 @@
 # installs it with no network and no separate files:
 #   bash remote-shell-installer-linux-amd64.sh
 #
-# It serves HTTPS itself (auto self-signed cert) on https://<host>:7443.
+# It serves HTTPS itself (auto self-signed cert) on https://<host>:8443.
 # Safe to re-run (idempotent). Overrides:
-#   REMOTE_SHELL_VERSION=v1.2.3   REMOTE_SHELL_BIN=/path/to/binary   PORT=7443
+#   REMOTE_SHELL_VERSION=v1.2.3   REMOTE_SHELL_BIN=/path/to/binary   PORT=8443
 set -euo pipefail
 
 REPO_SLUG="0xshawn/remote-shell"
 VERSION="${REMOTE_SHELL_VERSION:-latest}"
-PORT="${PORT:-7443}"
+PORT="${PORT:-8443}"
 
 # --- OS / arch: the release assets are linux amd64/arm64 only. ---
 [ "$(uname -s)" = "Linux" ] || { echo "error: binary install supports Linux only (got $(uname -s))" >&2; exit 1; }
