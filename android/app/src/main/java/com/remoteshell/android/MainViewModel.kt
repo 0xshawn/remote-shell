@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.remoteshell.android.net.AuthClient
+import com.remoteshell.android.net.ChangePasswordResult
 import com.remoteshell.android.net.HttpClients
 import com.remoteshell.android.net.LoginResult
 import com.remoteshell.android.net.Prefs
@@ -158,6 +159,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         controller = null
         prefs.clearToken()
         _state.update { it.copy(screen = Screen.LOGIN, status = ConnStatus.OFFLINE, sessionLabel = "") }
+    }
+
+    /**
+     * Change the auth password. On success, if credentials are being saved, update the stored
+     * password so a later token-expiry re-login prefills the new one. [onResult] runs on the main thread.
+     */
+    fun changePassword(old: String, new: String, onResult: (ChangePasswordResult) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                auth.changePassword(prefs.serverUrl, prefs.token, old, new)
+            }
+            if (result is ChangePasswordResult.Success && prefs.saveCredentials) {
+                prefs.password = new
+            }
+            onResult(result)
+        }
     }
 
     override fun onCleared() {

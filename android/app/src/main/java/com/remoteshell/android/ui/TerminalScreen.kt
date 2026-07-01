@@ -19,15 +19,18 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,11 +47,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.DisposableEffect
 import com.remoteshell.android.UiState
+import com.remoteshell.android.net.ChangePasswordResult
 import com.remoteshell.android.term.ConnStatus
 import com.remoteshell.android.term.Modifiers
 import com.remoteshell.android.term.SessionController
@@ -65,6 +71,7 @@ fun TerminalScreen(
     onChangeFont: (Boolean) -> Unit,
     onClearScreen: () -> Unit,
     onToggleTheme: () -> Unit,
+    onChangePassword: (old: String, new: String, onResult: (ChangePasswordResult) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
     val view = remember {
@@ -89,7 +96,7 @@ fun TerminalScreen(
         topBar = {
             TerminalTopBar(
                 state, onReconnect, onDisconnect, onKill, onLogout,
-                onChangeFont, onClearScreen, onToggleTheme,
+                onChangeFont, onClearScreen, onToggleTheme, onChangePassword,
             ) { controller.showKeyboard() }
         },
     ) { padding ->
@@ -140,9 +147,11 @@ private fun TerminalTopBar(
     onChangeFont: (Boolean) -> Unit,
     onClearScreen: () -> Unit,
     onToggleTheme: () -> Unit,
+    onChangePassword: (old: String, new: String, onResult: (ChangePasswordResult) -> Unit) -> Unit,
     onShowKeyboard: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    var showChangePw by remember { mutableStateOf(false) }
     val (statusText, statusColor) = when (state.status) {
         ConnStatus.ONLINE -> "online" to Color(0xFF4CAF50)
         ConnStatus.CONNECTING -> "connecting…" to Color(0xFFFFC107)
@@ -177,10 +186,17 @@ private fun TerminalTopBar(
                 DropdownMenuItem(text = { Text("Reconnect") }, onClick = { menu = false; onReconnect() })
                 DropdownMenuItem(text = { Text("Disconnect") }, onClick = { menu = false; onDisconnect() })
                 DropdownMenuItem(text = { Text("Kill session") }, onClick = { menu = false; onKill() })
+                DropdownMenuItem(
+                    text = { Text("Change password") },
+                    onClick = { menu = false; showChangePw = true },
+                )
                 DropdownMenuItem(text = { Text("Logout") }, onClick = { menu = false; onLogout() })
             }
         },
     )
+    if (showChangePw) {
+        ChangePasswordDialog(onDismiss = { showChangePw = false }, onSubmit = onChangePassword)
+    }
 }
 
 @Composable
@@ -248,4 +264,67 @@ private fun ModButton(label: String, stateValue: Int, onTap: () -> Unit) {
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
         )
     }
+}
+
+@Composable
+private fun ChangePasswordDialog(
+    onDismiss: () -> Unit,
+    onSubmit: (old: String, new: String, onResult: (ChangePasswordResult) -> Unit) -> Unit,
+) {
+    var oldPw by remember { mutableStateOf("") }
+    var newPw by remember { mutableStateOf("") }
+    var confirmPw by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    val pwField: @Composable (String, String, (String) -> Unit) -> Unit = { value, label, onChange ->
+        OutlinedTextField(
+            value = value,
+            onValueChange = onChange,
+            label = { Text(label) },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Change password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                pwField(oldPw, "Current password") { oldPw = it }
+                pwField(newPw, "New password (min 6)") { newPw = it }
+                pwField(confirmPw, "Confirm new password") { confirmPw = it }
+                message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy,
+                onClick = {
+                    when {
+                        newPw.length < 6 -> message = "New password must be at least 6 characters"
+                        newPw != confirmPw -> message = "New passwords do not match"
+                        else -> {
+                            busy = true
+                            message = null
+                            onSubmit(oldPw, newPw) { result ->
+                                busy = false
+                                when (result) {
+                                    is ChangePasswordResult.Success ->
+                                        if (result.warning != null) message = result.warning else onDismiss()
+                                    is ChangePasswordResult.Error -> message = result.message
+                                }
+                            }
+                        }
+                    }
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
