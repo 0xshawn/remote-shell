@@ -7,7 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -24,10 +26,13 @@ type tokenPayload struct {
 }
 
 type auth struct {
+	mu       sync.RWMutex // guards password (read in checkCredentials, written in setPassword)
 	enabled  bool
 	username string
 	password string
 	secret   []byte
+	passFile string // path to persist password changes ("" = cannot persist)
+	pinned   bool   // password came from env/flag → runtime changes revert on restart
 }
 
 func newAuth(cfg *config) *auth {
@@ -36,6 +41,8 @@ func newAuth(cfg *config) *auth {
 		username: cfg.username,
 		password: cfg.password,
 		secret:   []byte(cfg.tokenSecret),
+		passFile: cfg.passwordFile,
+		pinned:   cfg.passwordPinned,
 	}
 }
 
@@ -84,9 +91,25 @@ func (a *auth) checkCredentials(user, pass string) bool {
 	if !a.enabled {
 		return true
 	}
+	a.mu.RLock()
+	current := a.password
+	a.mu.RUnlock()
 	uOK := subtle.ConstantTimeCompare([]byte(user), []byte(a.username)) == 1
-	pOK := subtle.ConstantTimeCompare([]byte(pass), []byte(a.password)) == 1
+	pOK := subtle.ConstantTimeCompare([]byte(pass), []byte(current)) == 1
 	return uOK && pOK
+}
+
+// setPassword updates the in-memory password and best-effort persists it (0600)
+// so it survives restart in the auto-managed case. Returns an error only if the
+// persist write fails.
+func (a *auth) setPassword(newPass string) error {
+	a.mu.Lock()
+	a.password = newPass
+	a.mu.Unlock()
+	if a.passFile == "" {
+		return nil
+	}
+	return os.WriteFile(a.passFile, []byte(newPass+"\n"), 0o600)
 }
 
 // extractToken reads a Bearer header, falling back to the ?token= query param.
