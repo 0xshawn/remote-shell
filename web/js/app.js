@@ -50,8 +50,8 @@
   // (50k lines) and renders on the GPU via the WebGL addon.
   // --------------------------------------------------------------------------
   const THEMES = {
-    dark: { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#ffffff', selectionBackground: '#264f78' },
-    light: { background: '#ffffff', foreground: '#1e1e1e', cursor: '#000000', selectionBackground: '#add6ff' },
+    dark: { background: '#14161b', foreground: '#d4d4d4', cursor: '#ffffff', selectionBackground: '#3b3f8f' },
+    light: { background: '#ffffff', foreground: '#1e1e1e', cursor: '#000000', selectionBackground: '#c7d2fe' },
   };
   let themeName = localStorage.getItem('rs_theme') || 'dark';
   let fontSize = parseInt(localStorage.getItem('rs_fontsize') || '14', 10);
@@ -800,6 +800,11 @@
     if (!menu.classList.contains('hidden') && !$('menu-wrap').contains(e.target)) closeMenu();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenu(); });
+
+  // Font size controls are promoted onto the toolbar for one-tap access; they
+  // reuse the same actions the overflow menu used to expose.
+  $('btn-font-dec').onclick = MENU_ACTIONS['font-dec'];
+  $('btn-font-inc').onclick = MENU_ACTIONS['font-inc'];
 
   // --------------------------------------------------------------------------
   // Modifier keys (Ctrl / Shift / Alt) — three-state sticky behavior:
