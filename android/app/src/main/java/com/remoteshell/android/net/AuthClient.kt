@@ -13,6 +13,13 @@ sealed class LoginResult {
     data class Error(val message: String) : LoginResult()
 }
 
+/** Result of a change-password attempt. */
+sealed class ChangePasswordResult {
+    /** Succeeded. [warning] is a non-null server note when the change won't survive a restart. */
+    data class Success(val warning: String?) : ChangePasswordResult()
+    data class Error(val message: String) : ChangePasswordResult()
+}
+
 /**
  * Talks to the remote-shell HTTP API: POST /api/login to obtain an HMAC token, and
  * GET /api/me to check whether a token is still valid (used to tell a token expiry
@@ -21,12 +28,13 @@ sealed class LoginResult {
 class AuthClient(private val http: OkHttpClient) {
 
     /** POST /api/login -> { token }. */
-    fun login(serverUrl: String, username: String, password: String): LoginResult {
+    fun login(serverUrl: String, username: String, password: String, remember: Boolean): LoginResult {
         val base = serverUrl.trim().trimEnd('/')
         if (base.isEmpty()) return LoginResult.Error("Server URL is empty")
         val body = JSONObject()
             .put("username", username)
             .put("password", password)
+            .put("remember", remember)
             .toString()
             .toRequestBody(JSON)
         val req = Request.Builder().url("$base/api/login").post(body).build()
@@ -65,6 +73,35 @@ class AuthClient(private val http: OkHttpClient) {
             }
         } catch (e: Exception) {
             null // network error: keep the token, let reconnect logic retry
+        }
+    }
+
+    /** POST /api/password with a Bearer token. Returns Success (with optional warning) or Error. */
+    fun changePassword(serverUrl: String, token: String, oldPassword: String, newPassword: String): ChangePasswordResult {
+        val base = serverUrl.trim().trimEnd('/')
+        if (base.isEmpty() || token.isEmpty()) return ChangePasswordResult.Error("Not signed in")
+        val body = JSONObject()
+            .put("oldPassword", oldPassword)
+            .put("newPassword", newPassword)
+            .toString()
+            .toRequestBody(JSON)
+        val req = Request.Builder()
+            .url("$base/api/password")
+            .header("Authorization", "Bearer $token")
+            .post(body)
+            .build()
+        return try {
+            http.newCall(req).execute().use { res ->
+                val json = JSONObject(res.body?.string() ?: "{}")
+                if (res.isSuccessful) {
+                    val warn = json.optString("warning").ifEmpty { null }
+                    ChangePasswordResult.Success(warn)
+                } else {
+                    ChangePasswordResult.Error(json.optString("error").ifEmpty { "HTTP ${res.code}" })
+                }
+            }
+        } catch (e: Exception) {
+            ChangePasswordResult.Error(e.message ?: "Network error")
         }
     }
 

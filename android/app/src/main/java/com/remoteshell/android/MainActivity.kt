@@ -63,6 +63,7 @@ private fun AppRoot(vm: MainViewModel, state: UiState) {
                     onChangeFont = vm::changeFont,
                     onClearScreen = vm::clearScreen,
                     onToggleTheme = vm::toggleTheme,
+                    onChangePassword = vm::changePassword,
                 )
             }
         }

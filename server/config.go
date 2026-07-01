@@ -19,6 +19,8 @@ type config struct {
 	username          string
 	password          string
 	generatedPassword bool
+	passwordFile      string // where runtime password changes are persisted ("" = cannot)
+	passwordPinned    bool   // password set via env/flag → runtime changes revert on restart
 	tokenSecret       string
 	sslKey            string
 	sslCert           string
@@ -152,6 +154,12 @@ func parseConfig() *config {
 		secret = loadOrCreate(pdir, "token_secret", func() string { return randHex(32) })
 	}
 
+	passwordFile := ""
+	if pdir != "" {
+		passwordFile = filepath.Join(pdir, "password")
+	}
+	passwordPinned := *password != ""
+
 	return &config{
 		port:              *port,
 		host:              *host,
@@ -161,6 +169,8 @@ func parseConfig() *config {
 		username:          *username,
 		password:          pass,
 		generatedPassword: generated,
+		passwordFile:      passwordFile,
+		passwordPinned:    passwordPinned,
 		tokenSecret:       secret,
 		sslKey:            *sslKey,
 		sslCert:           *sslCert,

@@ -66,6 +66,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Remember bool   `json:"remember"`
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&body)
 	if !s.auth.checkCredentials(body.Username, body.Password) {
@@ -77,7 +78,11 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !s.auth.enabled {
 		user = "anonymous"
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"token": s.auth.issueToken(user)})
+	ttl := tokenTTL
+	if body.Remember {
+		ttl = rememberTokenTTL
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": s.auth.issueToken(user, ttl)})
 }
 
 func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +92,45 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user": p.User, "authEnabled": s.auth.enabled})
+}
+
+// handlePassword changes the auth password. Requires a valid token AND the
+// correct current password, so a stolen token alone cannot lock out the account.
+// The token signing secret is unchanged, so other devices stay logged in.
+func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
+	p := s.auth.verifyToken(extractToken(r))
+	if p == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+	if !s.auth.enabled {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "auth is disabled"})
+		return
+	}
+	var body struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&body)
+	if !s.auth.checkCredentials(p.User, body.OldPassword) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "current password is incorrect"})
+		return
+	}
+	if len(body.NewPassword) < 6 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "new password must be at least 6 characters"})
+		return
+	}
+	if err := s.auth.setPassword(body.NewPassword); err != nil {
+		logger.Warnf("password change persist failed: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist new password"})
+		return
+	}
+	resp := map[string]any{"ok": true}
+	if s.auth.pinned {
+		resp["warning"] = "Password changed for this session, but AUTH_PASS is set in the environment and will override it on restart. Update AUTH_PASS to make it permanent."
+	}
+	logger.Infof("password changed for user=%s", p.User)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleSessions lists the authenticated user's live sessions so any device can
@@ -234,6 +278,7 @@ func main() {
 	})
 	mux.HandleFunc("/api/login", srv.handleLogin)
 	mux.HandleFunc("/api/me", srv.handleMe)
+	mux.HandleFunc("POST /api/password", srv.handlePassword)
 	mux.HandleFunc("GET /api/sessions", srv.handleSessions)
 	mux.HandleFunc("DELETE /api/sessions", srv.handleSessionDelete)
 	mux.HandleFunc("/ws", srv.handleWS)

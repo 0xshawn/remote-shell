@@ -12,7 +12,6 @@ import (
 )
 
 func TestSessionsAPISmoke(t *testing.T) {
-	logger = newLogger("error") // main() sets this in production; tests must too
 	cfg := &config{
 		shell:       "/bin/cat", // stays alive on a PTY without exiting
 		cwd:         "/",

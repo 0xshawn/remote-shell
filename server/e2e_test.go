@@ -24,7 +24,6 @@ import (
 //	B attaches             -> A is superseded and dropped, B is live
 //	A reattaches (reclaim)  -> B is superseded and dropped, A is live
 func TestMultiDeviceTakeoverE2E(t *testing.T) {
-	logger = newLogger("error")
 	cfg := &config{
 		shell:       "/bin/cat", // echoes its input back on the PTY; stays alive
 		cwd:         "/",
