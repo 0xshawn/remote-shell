@@ -521,6 +521,7 @@
       else localStorage.removeItem('rs_user');
       hideLogin();
       boot();
+      refreshAdmin();
     } catch (err) {
       errEl.textContent = 'Login failed: ' + err.message;
       errEl.classList.remove('hidden');
@@ -568,6 +569,101 @@
     } catch (err) {
       showMsg('Request failed: ' + err.message, false);
     }
+  });
+
+  // --------------------------------------------------------------------------
+  // Manage users (admin only)
+  // --------------------------------------------------------------------------
+  let currentUser = localStorage.getItem('rs_user') || '';
+
+  // refreshAdmin reads /api/me and shows the "Manage users" menu item for admins.
+  async function refreshAdmin() {
+    if (!token) { $('menu-users').classList.add('hidden'); return; }
+    try {
+      const r = await fetch('/api/me', { headers: { Authorization: 'Bearer ' + token } });
+      if (!r.ok) { $('menu-users').classList.add('hidden'); return; }
+      const me = await r.json();
+      currentUser = me.user || currentUser;
+      $('menu-users').classList.toggle('hidden', !me.admin);
+    } catch (e) { $('menu-users').classList.add('hidden'); }
+  }
+
+  function usersMsg(text, ok) {
+    const m = $('users-msg');
+    m.textContent = text || '';
+    m.className = 'hint' + (ok ? ' ok' : '') + (text ? '' : ' hidden');
+  }
+
+  async function loadUsers() {
+    const r = await fetch('/api/users', { headers: { Authorization: 'Bearer ' + token } });
+    if (!r.ok) { usersMsg('Failed to load users', false); return; }
+    const data = await r.json();
+    const ul = $('users-list');
+    ul.innerHTML = '';
+    (data.users || []).forEach(function (u) {
+      const li = document.createElement('li');
+      const name = document.createElement('span');
+      name.className = 'uname';
+      name.textContent = u.username;
+      li.appendChild(name);
+      if (u.admin) {
+        const b = document.createElement('span');
+        b.className = 'badge';
+        b.textContent = 'admin';
+        li.appendChild(b);
+      }
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = 'Delete';
+      if (u.username === currentUser) { del.disabled = true; del.title = 'You cannot delete yourself'; }
+      del.onclick = function () { deleteUser(u.username); };
+      li.appendChild(del);
+      ul.appendChild(li);
+    });
+  }
+
+  function showUsers() {
+    usersMsg('', false);
+    $('nu-name').value = '';
+    $('nu-pass').value = '';
+    $('nu-admin').checked = false;
+    $('users-overlay').classList.remove('hidden');
+    loadUsers();
+  }
+  function hideUsers() { $('users-overlay').classList.add('hidden'); }
+  $('users-close').onclick = hideUsers;
+
+  async function deleteUser(username) {
+    try {
+      const r = await fetch('/api/users?username=' + encodeURIComponent(username), {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      const data = await r.json().catch(function () { return {}; });
+      if (!r.ok) { usersMsg(data.error || ('HTTP ' + r.status), false); return; }
+      usersMsg('Deleted ' + username, true);
+      loadUsers();
+    } catch (e) { usersMsg('Request failed: ' + e.message, false); }
+  }
+
+  $('users-create').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const username = $('nu-name').value.trim();
+    const password = $('nu-pass').value;
+    const admin = $('nu-admin').checked;
+    if (password.length < 6) { usersMsg('Password must be at least 6 characters', false); return; }
+    try {
+      const r = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ username: username, password: password, admin: admin }),
+      });
+      const data = await r.json().catch(function () { return {}; });
+      if (!r.ok) { usersMsg(data.error || ('HTTP ' + r.status), false); return; }
+      usersMsg('Created ' + username, true);
+      $('nu-name').value = ''; $('nu-pass').value = ''; $('nu-admin').checked = false;
+      loadUsers();
+    } catch (e) { usersMsg('Request failed: ' + e.message, false); }
   });
 
   // --------------------------------------------------------------------------
@@ -678,6 +774,7 @@
     },
     kill: function () { if (activeSid) deleteSession(activeSid); },
     'change-password': function () { showChangePassword(); },
+    users: function () { showUsers(); },
     logout: function () {
       // Token is a stateless HMAC token, so logout just discards it client-side.
       panes.forEach(function (p) { p.dispose(); });
@@ -944,7 +1041,7 @@
   // --------------------------------------------------------------------------
   applyTheme();
   if (token) {
-    verifyToken().then(function (ok) { if (ok) boot(); else showLogin(); });
+    verifyToken().then(function (ok) { if (ok) { boot(); refreshAdmin(); } else showLogin(); });
   } else {
     showLogin();
   }

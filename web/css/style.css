@@ -343,3 +343,50 @@ body.light #chpw-form h3 { color: #222; }
   .tab { max-width: 120px; font-size: 12px; }
   #btn-paste { padding: 5px 8px; }
 }
+
+/* ---------- manage-users overlay ---------- */
+#users-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#users-box {
+  background: #252526;
+  padding: 24px;
+  border-radius: 8px;
+  width: 360px;
+  max-width: 92vw;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+#users-box h3 { margin: 0; color: #eee; text-align: center; }
+#users-box .hint { margin: 0; font-size: 13px; color: #f48771; text-align: center; }
+#users-box .hint.ok { color: #89d185; }
+#users-list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; }
+#users-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #333; color: #ddd; }
+#users-list .uname { flex: 1; }
+#users-list .badge { font-size: 11px; color: #0e639c; border: 1px solid #0e639c; border-radius: 4px; padding: 0 6px; }
+#users-list .del { background: transparent; border: 0; color: #f48771; cursor: pointer; }
+#users-list .del[disabled] { color: #666; cursor: default; }
+#users-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#users-create input[type="text"], #users-create input[type="password"] {
+  flex: 1 1 45%;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #1e1e1e;
+  color: #eee;
+  font-size: 16px;
+}
+#users-create .nu-admin { display: flex; align-items: center; gap: 6px; color: #ccc; font-size: 13px; }
+#users-create .primary { padding: 8px 12px; background: #0e639c; border-color: #0e639c; color: #fff; }
+.users-actions { display: flex; justify-content: flex-end; }
+.users-actions button { padding: 8px 14px; }
+body.light #users-box { background: #fff; }
+body.light #users-box h3 { color: #222; }
