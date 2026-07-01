@@ -14,9 +14,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -24,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +60,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.runtime.DisposableEffect
 import com.remoteshell.android.UiState
 import com.remoteshell.android.net.ChangePasswordResult
+import com.remoteshell.android.net.UserInfo
 import com.remoteshell.android.term.ConnStatus
 import com.remoteshell.android.term.Modifiers
 import com.remoteshell.android.term.SessionController
@@ -72,6 +78,9 @@ fun TerminalScreen(
     onClearScreen: () -> Unit,
     onToggleTheme: () -> Unit,
     onChangePassword: (old: String, new: String, onResult: (ChangePasswordResult) -> Unit) -> Unit,
+    onLoadUsers: (onResult: (Result<List<UserInfo>>) -> Unit) -> Unit,
+    onCreateUser: (username: String, password: String, admin: Boolean, onResult: (String?) -> Unit) -> Unit,
+    onDeleteUser: (username: String, onResult: (String?) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
     val view = remember {
@@ -97,6 +106,7 @@ fun TerminalScreen(
             TerminalTopBar(
                 state, onReconnect, onDisconnect, onKill, onLogout,
                 onChangeFont, onClearScreen, onToggleTheme, onChangePassword,
+                onLoadUsers, onCreateUser, onDeleteUser,
             ) { controller.showKeyboard() }
         },
     ) { padding ->
@@ -148,10 +158,14 @@ private fun TerminalTopBar(
     onClearScreen: () -> Unit,
     onToggleTheme: () -> Unit,
     onChangePassword: (old: String, new: String, onResult: (ChangePasswordResult) -> Unit) -> Unit,
+    onLoadUsers: (onResult: (Result<List<UserInfo>>) -> Unit) -> Unit,
+    onCreateUser: (username: String, password: String, admin: Boolean, onResult: (String?) -> Unit) -> Unit,
+    onDeleteUser: (username: String, onResult: (String?) -> Unit) -> Unit,
     onShowKeyboard: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     var showChangePw by remember { mutableStateOf(false) }
+    var showUsers by remember { mutableStateOf(false) }
     val (statusText, statusColor) = when (state.status) {
         ConnStatus.ONLINE -> "online" to Color(0xFF4CAF50)
         ConnStatus.CONNECTING -> "connecting…" to Color(0xFFFFC107)
@@ -190,12 +204,27 @@ private fun TerminalTopBar(
                     text = { Text("Change password") },
                     onClick = { menu = false; showChangePw = true },
                 )
+                if (state.admin) {
+                    DropdownMenuItem(
+                        text = { Text("Manage users") },
+                        onClick = { menu = false; showUsers = true },
+                    )
+                }
                 DropdownMenuItem(text = { Text("Logout") }, onClick = { menu = false; onLogout() })
             }
         },
     )
     if (showChangePw) {
         ChangePasswordDialog(onDismiss = { showChangePw = false }, onSubmit = onChangePassword)
+    }
+    if (showUsers) {
+        ManageUsersDialog(
+            currentUser = state.username,
+            onDismiss = { showUsers = false },
+            onLoad = onLoadUsers,
+            onCreate = onCreateUser,
+            onDelete = onDeleteUser,
+        )
     }
 }
 
@@ -326,5 +355,89 @@ private fun ChangePasswordDialog(
         dismissButton = {
             TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") }
         },
+    )
+}
+
+@Composable
+private fun ManageUsersDialog(
+    currentUser: String,
+    onDismiss: () -> Unit,
+    onLoad: (onResult: (Result<List<UserInfo>>) -> Unit) -> Unit,
+    onCreate: (username: String, password: String, admin: Boolean, onResult: (String?) -> Unit) -> Unit,
+    onDelete: (username: String, onResult: (String?) -> Unit) -> Unit,
+) {
+    var users by remember { mutableStateOf<List<UserInfo>>(emptyList()) }
+    var newName by remember { mutableStateOf("") }
+    var newPass by remember { mutableStateOf("") }
+    var newAdmin by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    fun reload() {
+        onLoad { r ->
+            r.onSuccess { users = it }.onFailure { message = it.message ?: "Failed to load users" }
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("Manage users") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                    items(users, key = { it.username }) { u ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                u.username + if (u.admin) "  (admin)" else "",
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (u.username != currentUser) {
+                                TextButton(enabled = !busy, onClick = {
+                                    busy = true; message = null
+                                    onDelete(u.username) { err ->
+                                        busy = false
+                                        if (err != null) message = err else reload()
+                                    }
+                                }) { Text("Delete") }
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = newName, onValueChange = { newName = it },
+                    label = { Text("New username") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = newPass, onValueChange = { newPass = it },
+                    label = { Text("Password (min 6)") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = newAdmin, onCheckedChange = { newAdmin = it })
+                    Text("Admin")
+                }
+                message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy,
+                onClick = {
+                    if (newPass.length < 6) { message = "Password must be at least 6 characters"; return@TextButton }
+                    busy = true; message = null
+                    onCreate(newName.trim(), newPass, newAdmin) { err ->
+                        busy = false
+                        if (err != null) { message = err } else {
+                            newName = ""; newPass = ""; newAdmin = false; reload()
+                        }
+                    }
+                },
+            ) { Text("Create") }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("Close") } },
     )
 }
