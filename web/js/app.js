@@ -50,8 +50,8 @@
   // (50k lines) and renders on the GPU via the WebGL addon.
   // --------------------------------------------------------------------------
   const THEMES = {
-    dark: { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#ffffff', selectionBackground: '#264f78' },
-    light: { background: '#ffffff', foreground: '#1e1e1e', cursor: '#000000', selectionBackground: '#add6ff' },
+    dark: { background: '#14161b', foreground: '#d4d4d4', cursor: '#ffffff', selectionBackground: '#3b3f8f' },
+    light: { background: '#ffffff', foreground: '#1e1e1e', cursor: '#000000', selectionBackground: '#c7d2fe' },
   };
   let themeName = localStorage.getItem('rs_theme') || 'dark';
   let fontSize = parseInt(localStorage.getItem('rs_fontsize') || '14', 10);
