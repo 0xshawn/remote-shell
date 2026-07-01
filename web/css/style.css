@@ -95,7 +95,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -144,7 +144,8 @@ body {
   transition: opacity var(--transition), background var(--transition);
 }
 .tab-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.18); }
-#tab-add { flex: 0 0 auto; padding: 5px 10px; font-size: 15px; line-height: 1; }
+#tab-add { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; padding: 5px 9px; }
+#tab-add svg { display: block; }
 
 /* ---------- font size controls ---------- */
 /* Compact A-/A+ pair promoted onto the toolbar (out of the overflow menu). */
