@@ -8,6 +8,7 @@ import com.remoteshell.android.net.ChangePasswordResult
 import com.remoteshell.android.net.HttpClients
 import com.remoteshell.android.net.LoginResult
 import com.remoteshell.android.net.Prefs
+import com.remoteshell.android.net.UserInfo
 import com.remoteshell.android.term.ConnStatus
 import com.remoteshell.android.term.Modifiers
 import com.remoteshell.android.term.SessionController
@@ -34,6 +35,7 @@ data class UiState(
     val loggingIn: Boolean = false,
     val loginError: String? = null,
     val darkTheme: Boolean = true,
+    val admin: Boolean = false,
 )
 
 /**
@@ -123,13 +125,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 saveCredentials = prefs.saveCredentials,
             )
         }
+        viewModelScope.launch {
+            val isAdmin = withContext(Dispatchers.IO) { auth.fetchAdmin(prefs.serverUrl, prefs.token) }
+            _state.update { it.copy(admin = isAdmin) }
+        }
         c.connect()
     }
 
     private fun onNeedLogin() {
         controller?.shutdown()
         controller = null
-        _state.update { it.copy(screen = Screen.LOGIN, status = ConnStatus.OFFLINE) }
+        _state.update { it.copy(screen = Screen.LOGIN, status = ConnStatus.OFFLINE, admin = false) }
     }
 
     // ---- Toolbar actions ----
@@ -150,7 +156,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         controller?.killSession()
         controller?.shutdown()
         controller = null
-        _state.update { it.copy(screen = Screen.LOGIN, status = ConnStatus.OFFLINE, sessionLabel = "") }
+        _state.update { it.copy(screen = Screen.LOGIN, status = ConnStatus.OFFLINE, sessionLabel = "", admin = false) }
     }
 
     fun logout() {
@@ -158,7 +164,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         controller?.shutdown()
         controller = null
         prefs.clearToken()
-        _state.update { it.copy(screen = Screen.LOGIN, status = ConnStatus.OFFLINE, sessionLabel = "") }
+        _state.update { it.copy(screen = Screen.LOGIN, status = ConnStatus.OFFLINE, sessionLabel = "", admin = false) }
     }
 
     /**
@@ -174,6 +180,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.password = new
             }
             onResult(result)
+        }
+    }
+
+    /** Load the user list (admin only). [onResult] runs on the main thread. */
+    fun loadUsers(onResult: (Result<List<UserInfo>>) -> Unit) {
+        viewModelScope.launch {
+            val r = withContext(Dispatchers.IO) { auth.listUsers(prefs.serverUrl, prefs.token) }
+            onResult(r)
+        }
+    }
+
+    /** Create a user (admin only). [onResult] gets null on success, else an error message. */
+    fun createUser(username: String, password: String, admin: Boolean, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val err = withContext(Dispatchers.IO) { auth.createUser(prefs.serverUrl, prefs.token, username, password, admin) }
+            onResult(err)
+        }
+    }
+
+    /** Delete a user (admin only). [onResult] gets null on success, else an error message. */
+    fun deleteUser(username: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val err = withContext(Dispatchers.IO) { auth.deleteUser(prefs.serverUrl, prefs.token, username) }
+            onResult(err)
         }
     }
 

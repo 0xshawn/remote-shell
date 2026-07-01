@@ -4,6 +4,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Result of a login attempt against the remote-shell server. */
@@ -19,6 +20,9 @@ sealed class ChangePasswordResult {
     data class Success(val warning: String?) : ChangePasswordResult()
     data class Error(val message: String) : ChangePasswordResult()
 }
+
+/** One account as returned by GET /api/users. */
+data class UserInfo(val username: String, val admin: Boolean, val created: Long)
 
 /**
  * Talks to the remote-shell HTTP API: POST /api/login to obtain an HMAC token, and
@@ -103,6 +107,68 @@ class AuthClient(private val http: OkHttpClient) {
         } catch (e: Exception) {
             ChangePasswordResult.Error(e.message ?: "Network error")
         }
+    }
+
+    /** GET /api/me -> admin flag. Returns false on any error (non-admin/expired/network). */
+    fun fetchAdmin(serverUrl: String, token: String): Boolean {
+        val base = serverUrl.trim().trimEnd('/')
+        if (base.isEmpty() || token.isEmpty()) return false
+        val req = Request.Builder().url("$base/api/me").header("Authorization", "Bearer $token").get().build()
+        return try {
+            http.newCall(req).execute().use { res ->
+                if (!res.isSuccessful) false
+                else JSONObject(res.body?.string() ?: "{}").optBoolean("admin", false)
+            }
+        } catch (e: Exception) { false }
+    }
+
+    /** GET /api/users. */
+    fun listUsers(serverUrl: String, token: String): Result<List<UserInfo>> {
+        val base = serverUrl.trim().trimEnd('/')
+        if (base.isEmpty() || token.isEmpty()) return Result.failure(Exception("Not signed in"))
+        val req = Request.Builder().url("$base/api/users").header("Authorization", "Bearer $token").get().build()
+        return try {
+            http.newCall(req).execute().use { res ->
+                val json = JSONObject(res.body?.string() ?: "{}")
+                if (!res.isSuccessful) return Result.failure(Exception(json.optString("error").ifEmpty { "HTTP ${res.code}" }))
+                val arr: JSONArray = json.optJSONArray("users") ?: JSONArray()
+                val out = ArrayList<UserInfo>(arr.length())
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    out.add(UserInfo(o.optString("username"), o.optBoolean("admin"), o.optLong("created")))
+                }
+                Result.success(out)
+            }
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    /** POST /api/users. Returns null on success, else a human-readable error. */
+    fun createUser(serverUrl: String, token: String, username: String, password: String, admin: Boolean): String? {
+        val base = serverUrl.trim().trimEnd('/')
+        if (base.isEmpty() || token.isEmpty()) return "Not signed in"
+        val body = JSONObject().put("username", username).put("password", password).put("admin", admin)
+            .toString().toRequestBody(JSON)
+        val req = Request.Builder().url("$base/api/users").header("Authorization", "Bearer $token").post(body).build()
+        return try {
+            http.newCall(req).execute().use { res ->
+                if (res.isSuccessful) null
+                else JSONObject(res.body?.string() ?: "{}").optString("error").ifEmpty { "HTTP ${res.code}" }
+            }
+        } catch (e: Exception) { e.message ?: "Network error" }
+    }
+
+    /** DELETE /api/users?username=. Returns null on success, else a human-readable error. */
+    fun deleteUser(serverUrl: String, token: String, username: String): String? {
+        val base = serverUrl.trim().trimEnd('/')
+        if (base.isEmpty() || token.isEmpty()) return "Not signed in"
+        val url = "$base/api/users?username=" + java.net.URLEncoder.encode(username, "UTF-8")
+        val req = Request.Builder().url(url).header("Authorization", "Bearer $token").delete().build()
+        return try {
+            http.newCall(req).execute().use { res ->
+                if (res.isSuccessful) null
+                else JSONObject(res.body?.string() ?: "{}").optString("error").ifEmpty { "HTTP ${res.code}" }
+            }
+        } catch (e: Exception) { e.message ?: "Network error" }
     }
 
     companion object {
