@@ -11,30 +11,35 @@
   <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
-  <div id="toolbar">
+  <div id="toolbar" class="actions-collapsed">
     <span id="status" class="status-dot status-off" title="offline"></span>
     <div id="tab-strip">
       <div id="tabs"></div>
       <button id="tab-add" title="New terminal" aria-label="New terminal">&plus;</button>
     </div>
-    <button id="kb-fab" title="Toggle keys" aria-label="Toggle keys">⌨️</button>
-    <div id="font-ctl">
-      <button id="btn-font-dec" title="Smaller font" aria-label="Smaller font"><span class="font-a">A</span>&minus;</button>
-      <button id="btn-font-inc" title="Larger font" aria-label="Larger font"><span class="font-a">A</span>&plus;</button>
-    </div>
-    <button id="btn-paste" title="Paste from clipboard">Paste</button>
-    <div id="menu-wrap">
-      <button id="btn-menu" title="More actions" aria-haspopup="true">&#8943;</button>
-      <div id="menu" class="hidden" role="menu">
-        <button data-act="copy">Copy selection</button>
-        <button data-act="clear">Clear screen</button>
-        <button data-act="theme">Toggle theme</button>
-        <button data-act="reconnect">Reconnect</button>
-        <button data-act="disconnect">Disconnect</button>
-        <button data-act="kill" class="danger">Kill terminal</button>
-        <button data-act="change-password">Change password</button>
-        <button data-act="users" id="menu-users" class="hidden">Manage users</button>
-        <button data-act="logout">Logout</button>
+    <!-- On mobile the toolbar becomes two rows; this toggles the secondary
+         #actions row (collapsed by default) to keep the bar compact. Hidden on desktop. -->
+    <button id="bar-toggle" title="More controls" aria-label="Toggle toolbar controls" aria-expanded="false" aria-controls="actions">&#9662;</button>
+    <div id="actions">
+      <button id="kb-fab" title="Toggle keys" aria-label="Toggle keys">⌨️</button>
+      <div id="font-ctl">
+        <button id="btn-font-dec" title="Smaller font" aria-label="Smaller font"><span class="font-a">A</span>&minus;</button>
+        <button id="btn-font-inc" title="Larger font" aria-label="Larger font"><span class="font-a">A</span>&plus;</button>
+      </div>
+      <button id="btn-paste" title="Paste from clipboard">Paste</button>
+      <div id="menu-wrap">
+        <button id="btn-menu" title="More actions" aria-haspopup="true">&#8943;</button>
+        <div id="menu" class="hidden" role="menu">
+          <button data-act="copy">Copy selection</button>
+          <button data-act="clear">Clear screen</button>
+          <button data-act="theme">Toggle theme</button>
+          <button data-act="reconnect">Reconnect</button>
+          <button data-act="disconnect">Disconnect</button>
+          <button data-act="kill" class="danger">Kill terminal</button>
+          <button data-act="change-password">Change password</button>
+          <button data-act="users" id="menu-users" class="hidden">Manage users</button>
+          <button data-act="logout">Logout</button>
+        </div>
       </div>
     </div>
   </div>

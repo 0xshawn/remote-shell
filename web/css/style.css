@@ -107,6 +107,11 @@ body {
    so + never scrolls away; on mobile the whole strip wraps to its own full row. */
 #tab-strip { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
 
+/* Secondary actions cluster. Desktop: inline at the right. Mobile: collapses into
+   a toggle-able second row (see the mobile @media block). */
+#actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+#bar-toggle { display: none; }  /* mobile-only control */
+
 .tab {
   display: flex;
   align-items: center;
@@ -419,11 +424,18 @@ button.danger:hover { background: var(--danger); color: #fff; }
   #font-ctl .font-a { display: none; }
   #font-ctl button { min-width: 30px; }
 
-  /* Two-row toolbar: status + actions on row 1 (actions pushed right), the
-     full-width tab strip on row 2, so tabs and the + button get real room. */
+  /* Row 1 = status + tab strip + toggle; row 2 = the actions cluster, collapsed
+     by default and revealed by #bar-toggle — so the bar stays one row most of the
+     time, and tabs/+ always have room. */
   #toolbar { flex-wrap: wrap; row-gap: 6px; }
-  #tab-strip { order: 2; flex: 1 1 100%; }
-  #kb-fab { margin-left: auto; }
+  #bar-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    order: 2; flex: 0 0 auto; min-width: 40px;
+    transition: transform var(--transition);
+  }
+  #toolbar:not(.actions-collapsed) #bar-toggle { transform: rotate(180deg); }
+  #actions { order: 3; flex: 1 1 100%; justify-content: flex-end; }
+  #toolbar.actions-collapsed #actions { display: none; }
 
   /* Bigger, easier-to-hit touch targets. */
   #toolbar button { min-height: 40px; }
