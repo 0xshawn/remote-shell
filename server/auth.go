@@ -11,7 +11,10 @@ import (
 	"time"
 )
 
-const tokenTTL = 12 * time.Hour
+const (
+	tokenTTL         = 12 * time.Hour
+	rememberTokenTTL = 30 * 24 * time.Hour
+)
 
 // tokenPayload is the body of our minimal HMAC-signed token (a tiny JWT-like
 // format, no external dependency). Field order is fixed so the JSON is stable.
@@ -42,9 +45,9 @@ func (a *auth) sign(body []byte) string {
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
-// issueToken returns "<base64url(payload)>.<base64url(hmac)>".
-func (a *auth) issueToken(user string) string {
-	body, _ := json.Marshal(tokenPayload{User: user, Exp: time.Now().Add(tokenTTL).UnixMilli()})
+// issueToken returns "<base64url(payload)>.<base64url(hmac)>" valid for ttl.
+func (a *auth) issueToken(user string, ttl time.Duration) string {
+	body, _ := json.Marshal(tokenPayload{User: user, Exp: time.Now().Add(ttl).UnixMilli()})
 	b64 := base64.RawURLEncoding.EncodeToString(body)
 	return b64 + "." + a.sign(body)
 }

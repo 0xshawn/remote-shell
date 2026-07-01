@@ -66,6 +66,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Remember bool   `json:"remember"`
 	}
 	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&body)
 	if !s.auth.checkCredentials(body.Username, body.Password) {
@@ -77,7 +78,11 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !s.auth.enabled {
 		user = "anonymous"
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"token": s.auth.issueToken(user)})
+	ttl := tokenTTL
+	if body.Remember {
+		ttl = rememberTokenTTL
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": s.auth.issueToken(user, ttl)})
 }
 
 func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
