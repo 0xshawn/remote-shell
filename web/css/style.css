@@ -84,12 +84,11 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  background: #252526;
-  border-bottom: 1px solid #333;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
-body.light #toolbar { background: #f3f3f3; border-color: #ddd; }
 
 /* ---------- tab strip ---------- */
 #tabs {
@@ -110,17 +109,18 @@ body.light #toolbar { background: #f3f3f3; border-color: #ddd; }
   gap: 4px;
   flex: 0 0 auto;
   max-width: 160px;
-  padding: 4px 4px 4px 10px;
-  border: 1px solid #555;
-  border-radius: 6px;
-  background: #2d2d2e;
-  color: #ccc;
+  padding: 5px 5px 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
   cursor: pointer;
   font-size: 13px;
   user-select: none;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
-.tab:hover { background: #37373a; }
-.tab.active { background: #0e639c; border-color: #1177bb; color: #fff; }
+.tab:hover { background: var(--overlay); color: var(--text); }
+.tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-close {
   flex: 0 0 auto;
@@ -130,13 +130,12 @@ body.light #toolbar { background: #f3f3f3; border-color: #ddd; }
   color: inherit;
   font-size: 15px;
   line-height: 1;
-  border-radius: 4px;
+  border-radius: 999px;
   opacity: 0.6;
+  transition: opacity var(--transition), background var(--transition);
 }
-.tab-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.15); }
-#tab-add { flex: 0 0 auto; padding: 5px 9px; font-size: 15px; line-height: 1; }
-body.light .tab { background: #ececec; color: #333; border-color: #ccc; }
-body.light .tab.active { background: #0e639c; color: #fff; border-color: #0e639c; }
+.tab-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.18); }
+#tab-add { flex: 0 0 auto; padding: 5px 10px; font-size: 15px; line-height: 1; }
 
 /* ---------- overflow menu ---------- */
 #btn-paste { flex: 0 0 auto; }
@@ -186,10 +185,17 @@ button.danger:hover { background: #8a2a2a; }
 body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
 
 /* ---------- status dot ---------- */
-.status-dot { flex: 0 0 auto; width: 10px; height: 10px; border-radius: 50%; background: #6e1f1f; }
-.status-on { background: #2ea043; }
-.status-off { background: #6e1f1f; }
-.status-connecting { background: #b08800; }
+.status-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  transition: background var(--transition), box-shadow var(--transition);
+}
+.status-on { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18); }
+.status-off { background: var(--danger); box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15); }
+.status-connecting { background: var(--warn); box-shadow: 0 0 0 3px rgba(245, 179, 1, 0.18); }
 
 /* ---------- terminal ---------- */
 /* app.js owns one-finger touch scrolling for both buffers, so disable native
