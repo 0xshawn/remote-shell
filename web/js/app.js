@@ -528,6 +528,49 @@
   });
 
   // --------------------------------------------------------------------------
+  // Change password
+  // --------------------------------------------------------------------------
+  function showChangePassword() {
+    const msg = $('chpw-msg');
+    msg.className = 'hint hidden';
+    msg.textContent = '';
+    $('chpw-old').value = '';
+    $('chpw-new').value = '';
+    $('chpw-confirm').value = '';
+    $('chpw-overlay').classList.remove('hidden');
+    $('chpw-old').focus();
+  }
+  function hideChangePassword() { $('chpw-overlay').classList.add('hidden'); }
+  $('chpw-cancel').onclick = hideChangePassword;
+
+  $('chpw-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const oldP = $('chpw-old').value;
+    const newP = $('chpw-new').value;
+    const confirmP = $('chpw-confirm').value;
+    const msg = $('chpw-msg');
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.className = 'hint' + (ok ? ' ok' : '');
+    }
+    if (newP.length < 6) { showMsg('New password must be at least 6 characters', false); return; }
+    if (newP !== confirmP) { showMsg('New passwords do not match', false); return; }
+    try {
+      const res = await fetch('/api/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ oldPassword: oldP, newPassword: newP }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok) { showMsg(data.error || ('HTTP ' + res.status), false); return; }
+      showMsg(data.warning || 'Password changed', true);
+      setTimeout(hideChangePassword, data.warning ? 3500 : 1200);
+    } catch (err) {
+      showMsg('Request failed: ' + err.message, false);
+    }
+  });
+
+  // --------------------------------------------------------------------------
   // Toolbar
   // --------------------------------------------------------------------------
   function applyFont() {
@@ -634,6 +677,7 @@
       setStatus('off', 'disconnected');
     },
     kill: function () { if (activeSid) deleteSession(activeSid); },
+    'change-password': function () { showChangePassword(); },
     logout: function () {
       // Token is a stateless HMAC token, so logout just discards it client-side.
       panes.forEach(function (p) { p.dispose(); });

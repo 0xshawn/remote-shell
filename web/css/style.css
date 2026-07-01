@@ -300,6 +300,44 @@ body.light #paste-box { background: #fff; }
 body.light #paste-box h3 { color: #222; }
 body.light #paste-text { background: #fff; color: #222; }
 
+/* ---------- change-password overlay ---------- */
+#chpw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#chpw-form {
+  background: #252526;
+  padding: 24px;
+  border-radius: 8px;
+  width: 300px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+#chpw-form h3 { margin: 0; color: #eee; text-align: center; }
+#chpw-form input {
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #555;
+  background: #1e1e1e;
+  color: #eee;
+  font-size: 16px;
+}
+#chpw-form .hint { margin: 0; font-size: 13px; color: #f48771; text-align: center; }
+#chpw-form .hint.ok { color: #89d185; }
+.chpw-actions { display: flex; gap: 8px; }
+.chpw-actions button { flex: 1; padding: 10px; font-size: 15px; }
+.chpw-actions .primary { background: #0e639c; border-color: #0e639c; color: #fff; }
+body.light #chpw-form { background: #fff; }
+body.light #chpw-form h3 { color: #222; }
+
 @media (max-width: 640px) {
   #toolbar { gap: 6px; padding: 6px 8px; }
   .tab { max-width: 120px; font-size: 12px; }

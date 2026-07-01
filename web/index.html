@@ -27,6 +27,7 @@
         <button data-act="reconnect">Reconnect</button>
         <button data-act="disconnect">Disconnect</button>
         <button data-act="kill" class="danger">Kill terminal</button>
+        <button data-act="change-password">Change password</button>
         <button data-act="logout">Logout</button>
       </div>
     </div>
@@ -63,6 +64,21 @@
       <input id="login-pass" name="password" type="password" placeholder="Password" autocomplete="current-password" />
       <label id="login-remember-row"><input id="login-remember" type="checkbox" checked /> Remember me</label>
       <button type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <!-- Change-password overlay -->
+  <div id="chpw-overlay" class="hidden">
+    <form id="chpw-form">
+      <h3>Change password</h3>
+      <p id="chpw-msg" class="hint hidden"></p>
+      <input id="chpw-old" type="password" placeholder="Current password" autocomplete="current-password" />
+      <input id="chpw-new" type="password" placeholder="New password (min 6)" autocomplete="new-password" />
+      <input id="chpw-confirm" type="password" placeholder="Confirm new password" autocomplete="new-password" />
+      <div class="chpw-actions">
+        <button type="button" id="chpw-cancel">Cancel</button>
+        <button type="submit" class="primary">Save</button>
+      </div>
     </form>
   </div>
 
