@@ -259,7 +259,8 @@ button.danger:hover { background: var(--danger); color: #fff; }
 #login {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -268,30 +269,37 @@ button.danger:hover { background: var(--danger); color: #fff; }
 .hidden, #login.hidden { display: none !important; }
 
 #login-form {
-  background: #252526;
+  background: var(--overlay);
   padding: 28px;
-  border-radius: 8px;
-  width: 300px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 320px;
   max-width: 90vw;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
-#login-form h2 { margin: 0 0 4px; color: #eee; text-align: center; }
+#login-form h2 { margin: 0 0 4px; color: var(--text); text-align: center; font-weight: 600; }
 #login-form input {
-  padding: 10px;
-  border-radius: 4px;
-  border: 1px solid #555;
-  background: #1e1e1e;
-  color: #eee;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
   font-size: 16px; /* >=16px stops iOS Safari from zooming on focus */
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+#login-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 #login-form #login-remember-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #ccc;
+  color: var(--text-dim);
   font-size: 14px;
   cursor: pointer;
 }
@@ -302,88 +310,98 @@ button.danger:hover { background: var(--danger); color: #fff; }
   border: 0;
   background: none;
   font-size: inherit;
-  accent-color: #0e639c;
+  accent-color: var(--accent);
 }
-#login-form button { padding: 10px; font-size: 15px; background: #0e639c; border-color: #0e639c; color: #fff; }
-#login-form .error { color: #f48771; font-size: 13px; margin: 0; text-align: center; }
+#login-form button {
+  padding: 11px;
+  font-size: 15px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+#login-form button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+#login-form .error { color: var(--danger); font-size: 13px; margin: 0; text-align: center; }
 
 /* ---------- paste fallback overlay ---------- */
 #paste-overlay {
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 #paste-box {
-  background: #252526;
+  background: var(--overlay);
   padding: 20px;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   width: 380px;
   max-width: 92vw;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
-#paste-box h3 { margin: 0; color: #eee; }
-#paste-box .hint { margin: 0; font-size: 12px; color: #999; }
+#paste-box h3 { margin: 0; color: var(--text); }
+#paste-box .hint { margin: 0; font-size: 12px; color: var(--text-dim); }
 #paste-text {
   height: 120px;
   resize: vertical;
   padding: 10px;
-  border-radius: 4px;
-  border: 1px solid #555;
-  background: #1e1e1e;
-  color: #eee;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
   font-size: 16px; /* >=16px stops iOS Safari zooming on focus */
   font-family: Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
+#paste-text:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .paste-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.paste-actions .primary { background: #0e639c; border-color: #0e639c; color: #fff; }
-body.light #paste-box { background: #fff; }
-body.light #paste-box h3 { color: #222; }
-body.light #paste-text { background: #fff; color: #222; }
+.paste-actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.paste-actions .primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
 /* ---------- change-password overlay ---------- */
 #chpw-overlay {
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 #chpw-form {
-  background: #252526;
+  background: var(--overlay);
   padding: 24px;
-  border-radius: 8px;
-  width: 300px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 320px;
   max-width: 90vw;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
-#chpw-form h3 { margin: 0; color: #eee; text-align: center; }
+#chpw-form h3 { margin: 0; color: var(--text); text-align: center; }
 #chpw-form input {
-  padding: 10px;
-  border-radius: 4px;
-  border: 1px solid #555;
-  background: #1e1e1e;
-  color: #eee;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
   font-size: 16px;
 }
-#chpw-form .hint { margin: 0; font-size: 13px; color: #f48771; text-align: center; }
-#chpw-form .hint.ok { color: #89d185; }
+#chpw-form input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#chpw-form .hint { margin: 0; font-size: 13px; color: var(--danger); text-align: center; }
+#chpw-form .hint.ok { color: var(--ok); }
 .chpw-actions { display: flex; gap: 8px; }
-.chpw-actions button { flex: 1; padding: 10px; font-size: 15px; }
-.chpw-actions .primary { background: #0e639c; border-color: #0e639c; color: #fff; }
-body.light #chpw-form { background: #fff; }
-body.light #chpw-form h3 { color: #222; }
+.chpw-actions button { flex: 1; padding: 11px; font-size: 15px; }
+.chpw-actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chpw-actions .primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
 @media (max-width: 640px) {
   #toolbar { gap: 6px; padding: 6px 8px; }
@@ -396,44 +414,46 @@ body.light #chpw-form h3 { color: #222; }
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 #users-box {
-  background: #252526;
+  background: var(--overlay);
   padding: 24px;
-  border-radius: 8px;
-  width: 360px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 380px;
   max-width: 92vw;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
 }
-#users-box h3 { margin: 0; color: #eee; text-align: center; }
-#users-box .hint { margin: 0; font-size: 13px; color: #f48771; text-align: center; }
-#users-box .hint.ok { color: #89d185; }
+#users-box h3 { margin: 0; color: var(--text); text-align: center; }
+#users-box .hint { margin: 0; font-size: 13px; color: var(--danger); text-align: center; }
+#users-box .hint.ok { color: var(--ok); }
 #users-list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; }
-#users-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #333; color: #ddd; }
+#users-list li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text); }
 #users-list .uname { flex: 1; }
-#users-list .badge { font-size: 11px; color: #0e639c; border: 1px solid #0e639c; border-radius: 4px; padding: 0 6px; }
-#users-list .del { background: transparent; border: 0; color: #f48771; cursor: pointer; }
-#users-list .del[disabled] { color: #666; cursor: default; }
+#users-list .badge { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 8px; }
+#users-list .del { background: transparent; border: 0; color: var(--danger); cursor: pointer; }
+#users-list .del[disabled] { color: var(--text-dim); cursor: default; }
 #users-create { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #users-create input[type="text"], #users-create input[type="password"] {
   flex: 1 1 45%;
-  padding: 8px;
-  border-radius: 4px;
-  border: 1px solid #555;
-  background: #1e1e1e;
-  color: #eee;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
   font-size: 16px;
 }
-#users-create .nu-admin { display: flex; align-items: center; gap: 6px; color: #ccc; font-size: 13px; }
-#users-create .primary { padding: 8px 12px; background: #0e639c; border-color: #0e639c; color: #fff; }
+#users-create input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+#users-create .nu-admin { display: flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 13px; }
+#users-create input[type="checkbox"] { accent-color: var(--accent); }
+#users-create .primary { padding: 9px 14px; background: var(--accent); border-color: var(--accent); color: #fff; }
 .users-actions { display: flex; justify-content: flex-end; }
 .users-actions button { padding: 8px 14px; }
-body.light #users-box { background: #fff; }
-body.light #users-box h3 { color: #222; }
