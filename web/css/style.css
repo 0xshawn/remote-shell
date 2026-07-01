@@ -140,49 +140,51 @@ body {
 /* ---------- overflow menu ---------- */
 #btn-paste { flex: 0 0 auto; }
 #menu-wrap { position: relative; flex: 0 0 auto; }
-#btn-menu { font-size: 16px; line-height: 1; padding: 5px 10px; }
+#btn-menu { font-size: 16px; line-height: 1; padding: 6px 11px; }
 #menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
   z-index: 60;
   display: flex;
   flex-direction: column;
-  min-width: 170px;
+  min-width: 180px;
   padding: 6px;
   gap: 2px;
-  background: #252526;
-  border: 1px solid #444;
-  border-radius: 8px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
 }
 #menu button {
   text-align: left;
   background: transparent;
   border: none;
-  padding: 9px 10px;
-  border-radius: 6px;
+  padding: 9px 11px;
+  border-radius: var(--radius);
   font-size: 14px;
+  color: var(--text);
 }
-#menu button:hover { background: #37373a; }
-#menu button.danger { background: transparent; color: #f48771; }
-#menu button.danger:hover { background: #6e1f1f; color: #fff; }
-body.light #menu { background: #fff; border-color: #ddd; }
-body.light #menu button:hover { background: #ececec; }
+#menu button:hover { background: var(--accent-soft); color: var(--text); }
+#menu button.danger { background: transparent; color: var(--danger); }
+#menu button.danger:hover { background: var(--danger); color: #fff; }
 
 button {
-  background: #3a3d41;
-  color: #eee;
-  border: 1px solid #555;
-  border-radius: 4px;
-  padding: 5px 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
   font-size: 13px;
   cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
-button:hover { background: #4a4d51; }
-button.danger { background: #6e1f1f; border-color: #8a2a2a; }
-button.danger:hover { background: #8a2a2a; }
-body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
+button:hover { background: var(--overlay); border-color: var(--border-strong); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+button.danger { background: var(--danger-soft); border-color: transparent; color: var(--danger); }
+button.danger:hover { background: var(--danger); color: #fff; }
 
 /* ---------- status dot ---------- */
 .status-dot {
@@ -218,13 +220,12 @@ body.light button { background: #e7e7e7; color: #222; border-color: #ccc; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 6px;
-  background: #252526;
-  border-top: 1px solid #333;
+  padding: 8px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
   flex: 0 0 auto;
 }
 #keybar.hidden { display: none; }
-body.light #keybar { background: #f3f3f3; border-color: #ddd; }
 /* All keys live in one wrapping row, so nothing is clipped off-screen and
    4-char labels (Home/Shift) fit without overflow. */
 #keybar-keys { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -239,16 +240,16 @@ body.light #keybar { background: #f3f3f3; border-color: #ddd; }
 /* Keyboard toggle: a toolbar button (left of Paste), always shown.
    Emoji icon, sized larger than the text buttons. */
 #kb-fab { flex: 0 0 auto; font-size: 20px; line-height: 1; padding: 3px 9px; }
-#kb-fab.active { background: #0e639c; border-color: #1177bb; color: #fff; }
+#kb-fab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-/* Modifier-key states: latched = mild accent, locked = strong accent + ring. */
+/* Modifier-key states: latched = accent fill, locked = accent fill + ring. */
 #keybar button.mod.latched {
-  background: #0e639c;
-  border-color: #1177bb;
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 #keybar button.mod.locked {
-  background: #0e639c;
+  background: var(--accent);
   border-color: #ffffff;
   color: #fff;
   box-shadow: inset 0 0 0 2px #ffffff;
