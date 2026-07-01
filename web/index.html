@@ -28,6 +28,7 @@
         <button data-act="disconnect">Disconnect</button>
         <button data-act="kill" class="danger">Kill terminal</button>
         <button data-act="change-password">Change password</button>
+        <button data-act="users" id="menu-users" class="hidden">Manage users</button>
         <button data-act="logout">Logout</button>
       </div>
     </div>
@@ -80,6 +81,22 @@
         <button type="submit" class="primary">Save</button>
       </div>
     </form>
+  </div>
+
+  <!-- Manage users overlay (admin only) -->
+  <div id="users-overlay" class="hidden">
+    <div id="users-box">
+      <h3>Manage users</h3>
+      <p id="users-msg" class="hint hidden"></p>
+      <ul id="users-list"></ul>
+      <form id="users-create">
+        <input id="nu-name" type="text" placeholder="New username" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <input id="nu-pass" type="password" placeholder="Password (min 6)" autocomplete="new-password" />
+        <label class="nu-admin"><input id="nu-admin" type="checkbox" /> Admin</label>
+        <button type="submit" class="primary">Create</button>
+      </form>
+      <div class="users-actions"><button type="button" id="users-close">Close</button></div>
+    </div>
   </div>
 
   <script src="/vendor/xterm/xterm.js"></script>

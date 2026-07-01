@@ -64,6 +64,9 @@ private fun AppRoot(vm: MainViewModel, state: UiState) {
                     onClearScreen = vm::clearScreen,
                     onToggleTheme = vm::toggleTheme,
                     onChangePassword = vm::changePassword,
+                    onLoadUsers = vm::loadUsers,
+                    onCreateUser = vm::createUser,
+                    onDeleteUser = vm::deleteUser,
                 )
             }
         }

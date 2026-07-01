@@ -3,13 +3,10 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -26,24 +23,24 @@ type tokenPayload struct {
 }
 
 type auth struct {
-	mu       sync.RWMutex // guards password (read in checkCredentials, written in setPassword)
-	enabled  bool
-	username string
-	password string
-	secret   []byte
-	passFile string // path to persist password changes ("" = cannot persist)
-	pinned   bool   // password came from env/flag → runtime changes revert on restart
+	enabled bool
+	secret  []byte
+	store   *userStore
 }
 
+// newAuth builds the user store, seeding a first admin from cfg.username/password
+// when the store is empty, and returns an auth that delegates credential checks
+// to the store. The store is authoritative once seeded.
 func newAuth(cfg *config) *auth {
-	return &auth{
-		enabled:  cfg.authEnabled,
-		username: cfg.username,
-		password: cfg.password,
-		secret:   []byte(cfg.tokenSecret),
-		passFile: cfg.passwordFile,
-		pinned:   cfg.passwordPinned,
+	store := newUserStore(cfg.usersFile)
+	if cfg.authEnabled && store.count() == 0 {
+		if err := store.seedAdmin(cfg.username, cfg.password); err != nil {
+			logger.Errorf("seed admin failed: %v", err)
+		} else {
+			logger.Infof("seeded initial admin user=%s", cfg.username)
+		}
 	}
+	return &auth{enabled: cfg.authEnabled, secret: []byte(cfg.tokenSecret), store: store}
 }
 
 func (a *auth) sign(body []byte) string {
@@ -86,30 +83,26 @@ func (a *auth) verifyToken(token string) *tokenPayload {
 	return &p
 }
 
-// checkCredentials compares username/password in constant time.
+// checkCredentials verifies user+password against the store (bcrypt). With auth
+// disabled every request is allowed.
 func (a *auth) checkCredentials(user, pass string) bool {
 	if !a.enabled {
 		return true
 	}
-	a.mu.RLock()
-	current := a.password
-	a.mu.RUnlock()
-	uOK := subtle.ConstantTimeCompare([]byte(user), []byte(a.username)) == 1
-	pOK := subtle.ConstantTimeCompare([]byte(pass), []byte(current)) == 1
-	return uOK && pOK
+	return a.store.authenticate(user, pass)
 }
 
-// setPassword updates the in-memory password and best-effort persists it (0600)
-// so it survives restart in the auto-managed case. Returns an error only if the
-// persist write fails.
-func (a *auth) setPassword(newPass string) error {
-	a.mu.Lock()
-	a.password = newPass
-	a.mu.Unlock()
-	if a.passFile == "" {
-		return nil
+// setPassword changes a user's password in the store.
+func (a *auth) setPassword(user, newpass string) error {
+	return a.store.setPassword(user, newpass)
+}
+
+// isAdmin reports whether the user is an admin (false when auth is disabled).
+func (a *auth) isAdmin(user string) bool {
+	if !a.enabled {
+		return false
 	}
-	return os.WriteFile(a.passFile, []byte(newPass+"\n"), 0o600)
+	return a.store.isAdmin(user)
 }
 
 // extractToken reads a Bearer header, falling back to the ?token= query param.
