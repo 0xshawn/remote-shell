@@ -91,7 +91,7 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user": p.User, "authEnabled": s.auth.enabled})
+	writeJSON(w, http.StatusOK, map[string]any{"user": p.User, "authEnabled": s.auth.enabled, "admin": s.auth.isAdmin(p.User)})
 }
 
 // handlePassword changes the caller's password. Requires a valid token AND the
@@ -126,6 +126,78 @@ func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	logger.Infof("password changed for user=%s", p.User)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// requireAdmin verifies the token and that the caller is an admin. On failure it
+// writes 401/403 and returns nil.
+func (s *server) requireAdmin(w http.ResponseWriter, r *http.Request) *tokenPayload {
+	p := s.auth.verifyToken(extractToken(r))
+	if p == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return nil
+	}
+	if !s.auth.isAdmin(p.User) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin required"})
+		return nil
+	}
+	return p
+}
+
+// handleUsers lists users (GET) or creates one (POST). Admin only.
+func (s *server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	if s.requireAdmin(w, r) == nil {
+		return
+	}
+	if r.Method == http.MethodGet {
+		writeJSON(w, http.StatusOK, map[string]any{"users": s.auth.store.list()})
+		return
+	}
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Admin    bool   `json:"admin"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64*1024)).Decode(&body)
+	switch err := s.auth.store.create(body.Username, body.Password, body.Admin); err {
+	case nil:
+		logger.Infof("user created: %s (admin=%v)", body.Username, body.Admin)
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	case errUserExists:
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "user already exists"})
+	case errBadUsername:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username must be 1-32 chars of letters, digits, _ . -"})
+	case errPasswordTooShort:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 6 characters"})
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create user"})
+	}
+}
+
+// handleUserDelete removes ?username=<u>. Admin only. Guards against deleting
+// yourself or the last remaining admin.
+func (s *server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	p := s.requireAdmin(w, r)
+	if p == nil {
+		return
+	}
+	target := r.URL.Query().Get("username")
+	if target == p.User {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot delete yourself"})
+		return
+	}
+	if s.auth.store.isAdmin(target) && s.auth.store.countAdmins() <= 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot delete the last admin"})
+		return
+	}
+	switch err := s.auth.store.delete(target); err {
+	case nil:
+		logger.Infof("user deleted: %s", target)
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	case errNoSuchUser:
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
+	default:
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to delete user"})
+	}
 }
 
 // handleSessions lists the authenticated user's live sessions so any device can
@@ -274,6 +346,9 @@ func main() {
 	mux.HandleFunc("/api/login", srv.handleLogin)
 	mux.HandleFunc("/api/me", srv.handleMe)
 	mux.HandleFunc("POST /api/password", srv.handlePassword)
+	mux.HandleFunc("GET /api/users", srv.handleUsers)
+	mux.HandleFunc("POST /api/users", srv.handleUsers)
+	mux.HandleFunc("DELETE /api/users", srv.handleUserDelete)
 	mux.HandleFunc("GET /api/sessions", srv.handleSessions)
 	mux.HandleFunc("DELETE /api/sessions", srv.handleSessionDelete)
 	mux.HandleFunc("/ws", srv.handleWS)
