@@ -83,7 +83,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value.loggingIn) return
         _state.update { it.copy(loggingIn = true, loginError = null) }
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { auth.login(serverUrl, username, password) }
+            val result = withContext(Dispatchers.IO) { auth.login(serverUrl, username, password, save) }
             when (result) {
                 is LoginResult.Success -> {
                     prefs.storeCredentials(serverUrl, username, password, save)

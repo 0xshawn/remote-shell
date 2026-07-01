@@ -21,12 +21,13 @@ sealed class LoginResult {
 class AuthClient(private val http: OkHttpClient) {
 
     /** POST /api/login -> { token }. */
-    fun login(serverUrl: String, username: String, password: String): LoginResult {
+    fun login(serverUrl: String, username: String, password: String, remember: Boolean): LoginResult {
         val base = serverUrl.trim().trimEnd('/')
         if (base.isEmpty()) return LoginResult.Error("Server URL is empty")
         val body = JSONObject()
             .put("username", username)
             .put("password", password)
+            .put("remember", remember)
             .toString()
             .toRequestBody(JSON)
         val req = Request.Builder().url("$base/api/login").post(body).build()
