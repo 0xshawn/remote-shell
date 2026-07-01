@@ -29,6 +29,16 @@ func TestNewAuthSeedsAdmin(t *testing.T) {
 	}
 }
 
+func TestNewAuthSeedsShortPassword(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config{authEnabled: true, username: "admin", password: "pin1",
+		tokenSecret: "seed-secret", usersFile: filepath.Join(dir, "users.json")}
+	a := newAuth(cfg)
+	if !a.checkCredentials("admin", "pin1") {
+		t.Fatalf("bootstrap admin with a short password must still authenticate")
+	}
+}
+
 func TestAuthSetPasswordViaStore(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &config{authEnabled: true, username: "admin", password: "s3cret1",

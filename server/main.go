@@ -185,14 +185,12 @@ func (s *server) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot delete yourself"})
 		return
 	}
-	if s.auth.store.isAdmin(target) && s.auth.store.countAdmins() <= 1 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot delete the last admin"})
-		return
-	}
-	switch err := s.auth.store.delete(target); err {
+	switch err := s.auth.store.deleteGuarded(target); err {
 	case nil:
 		logger.Infof("user deleted: %s", target)
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	case errLastAdmin:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "cannot delete the last admin"})
 	case errNoSuchUser:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such user"})
 	default:

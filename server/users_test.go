@@ -83,6 +83,21 @@ func TestUserStorePersistenceAndHashing(t *testing.T) {
 	}
 }
 
+func TestUserStoreCorruptFileFallback(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "users.json")
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatalf("write corrupt file: %v", err)
+	}
+	s := newUserStore(path)
+	if s.count() != 0 {
+		t.Fatalf("corrupt file should yield an empty store, got count=%d", s.count())
+	}
+	if err := s.create("alice", "s3cret", true); err != nil {
+		t.Fatalf("create after corrupt load: %v", err)
+	}
+}
+
 func containsSubstr(hay, needle string) bool {
 	return len(hay) >= len(needle) && (func() bool {
 		for i := 0; i+len(needle) <= len(hay); i++ {

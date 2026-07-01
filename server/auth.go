@@ -34,8 +34,10 @@ type auth struct {
 func newAuth(cfg *config) *auth {
 	store := newUserStore(cfg.usersFile)
 	if cfg.authEnabled && store.count() == 0 {
-		if err := store.create(cfg.username, cfg.password, true); err != nil {
-			logger.Warnf("seed admin failed: %v", err)
+		if err := store.seedAdmin(cfg.username, cfg.password); err != nil {
+			logger.Errorf("seed admin failed: %v", err)
+		} else {
+			logger.Infof("seeded initial admin user=%s", cfg.username)
 		}
 	}
 	return &auth{enabled: cfg.authEnabled, secret: []byte(cfg.tokenSecret), store: store}

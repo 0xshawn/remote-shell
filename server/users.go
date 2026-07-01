@@ -21,6 +21,7 @@ var (
 	errNoSuchUser       = errors.New("no such user")
 	errBadUsername      = errors.New("invalid username")
 	errPasswordTooShort = errors.New("password too short")
+	errLastAdmin        = errors.New("cannot delete the last admin")
 )
 
 // userRecord is one account as persisted in users.json.
@@ -70,7 +71,8 @@ func newUserStore(path string) *userStore {
 }
 
 // save writes the store to disk atomically (temp + rename), 0600. Caller holds
-// the write lock. A prior file is backed up to <path>.bak on the first save.
+// the write lock. The existing file, if any, is refreshed to <path>.bak
+// (best-effort) before each overwrite.
 func (s *userStore) save() error {
 	if s.path == "" {
 		return nil
@@ -149,11 +151,53 @@ func (s *userStore) create(user, pass string, admin bool) error {
 	return s.save()
 }
 
+// seedAdmin inserts the bootstrap admin directly, bypassing the username/password
+// validation that governs store-managed accounts. AUTH_USER/AUTH_PASS predate those
+// rules, so an existing deployment (e.g. a short password or an email-style username)
+// must not be locked out on upgrade. Only seeds an empty store.
+func (s *userStore) seedAdmin(user, pass string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.users) != 0 {
+		return nil
+	}
+	s.users[user] = &userRecord{Username: user, PasswordHash: string(hash), Admin: true, Created: time.Now().UnixMilli()}
+	return s.save()
+}
+
 func (s *userStore) delete(user string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.users[user] == nil {
 		return errNoSuchUser
+	}
+	delete(s.users, user)
+	return s.save()
+}
+
+// deleteGuarded removes user under a single lock, refusing to delete the last
+// remaining admin so concurrent deletes can never remove every admin.
+func (s *userStore) deleteGuarded(user string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.users[user]
+	if r == nil {
+		return errNoSuchUser
+	}
+	if r.Admin {
+		admins := 0
+		for _, u := range s.users {
+			if u.Admin {
+				admins++
+			}
+		}
+		if admins <= 1 {
+			return errLastAdmin
+		}
 	}
 	delete(s.users, user)
 	return s.save()
