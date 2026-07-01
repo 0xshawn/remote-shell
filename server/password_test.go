@@ -12,7 +12,6 @@ import (
 
 func pwTestServer(t *testing.T, passFile string, pinned bool) (*httptest.Server, *server) {
 	t.Helper()
-	logger = newLogger("error") // main() sets this in production; tests must too
 	cfg := &config{authEnabled: true, username: "alice", password: "s3cret", tokenSecret: "pw-secret",
 		passwordFile: passFile, passwordPinned: pinned}
 	srv := &server{cfg: cfg, auth: newAuth(cfg)}
@@ -105,7 +104,6 @@ func TestChangePasswordPinnedWarns(t *testing.T) {
 }
 
 func TestChangePasswordNoAuthRejected(t *testing.T) {
-	logger = newLogger("error") // main() sets this in production; tests must too
 	cfg := &config{authEnabled: false, username: "admin", tokenSecret: "x"}
 	srv := &server{cfg: cfg, auth: newAuth(cfg)}
 	mux := http.NewServeMux()

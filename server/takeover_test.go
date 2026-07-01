@@ -16,7 +16,6 @@ import (
 // "superseded" event and then closed, so it can step aside instead of
 // auto-reconnecting and ping-ponging for the single subscriber slot.
 func TestSupersedeOnSecondAttach(t *testing.T) {
-	logger = newLogger("error")
 	cfg := &config{
 		shell:       "/bin/cat", // stays alive on a PTY without exiting
 		cwd:         "/",
