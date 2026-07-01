@@ -137,6 +137,11 @@ body {
 .tab-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.18); }
 #tab-add { flex: 0 0 auto; padding: 5px 10px; font-size: 15px; line-height: 1; }
 
+/* ---------- font size controls ---------- */
+/* Compact A-/A+ pair promoted onto the toolbar (out of the overflow menu). */
+#font-ctl { display: flex; gap: 4px; flex: 0 0 auto; }
+#font-ctl button { min-width: 34px; padding: 5px 8px; font-size: 13px; line-height: 1; }
+
 /* ---------- overflow menu ---------- */
 #btn-paste { flex: 0 0 auto; }
 #menu-wrap { position: relative; flex: 0 0 auto; }

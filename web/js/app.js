@@ -801,6 +801,11 @@
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeMenu(); });
 
+  // Font size controls are promoted onto the toolbar for one-tap access; they
+  // reuse the same actions the overflow menu used to expose.
+  $('btn-font-dec').onclick = MENU_ACTIONS['font-dec'];
+  $('btn-font-inc').onclick = MENU_ACTIONS['font-inc'];
+
   // --------------------------------------------------------------------------
   // Modifier keys (Ctrl / Shift / Alt) — three-state sticky behavior:
   //   released --(tap)--> latched  (applies to the next key, then auto-releases)
