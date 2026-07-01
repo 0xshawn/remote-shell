@@ -744,8 +744,15 @@
   // in the ⋯ overflow menu so the toolbar never wraps to two rows.
   $('btn-paste').onclick = function () { closeMenu(); pasteClipboard(); };
   // "New terminal" is pinned beside the tab strip (static in HTML), so it never
-  // scrolls out of view with the tabs — on mobile the strip is its own full row.
+  // scrolls out of view with the tabs.
   $('tab-add').onclick = function () { createSession(); };
+  // Mobile: the secondary #actions row is collapsed by default; this toggle (far
+  // right of the tab-strip row) shows/hides it to keep the bar compact. The
+  // terminal refits automatically via the ResizeObserver on #terminals.
+  $('bar-toggle').onclick = function () {
+    const collapsed = $('toolbar').classList.toggle('actions-collapsed');
+    $('bar-toggle').setAttribute('aria-expanded', String(!collapsed));
+  };
 
   const MENU_ACTIONS = {
     copy: copySelection,
