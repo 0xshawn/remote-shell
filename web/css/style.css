@@ -412,6 +412,9 @@ button.danger:hover { background: var(--danger); color: #fff; }
   #toolbar { gap: 6px; padding: 6px 8px; }
   .tab { max-width: 120px; font-size: 12px; }
   #btn-paste { padding: 5px 8px; }
+  /* Icon-only font controls on mobile: drop the "A", keep just -/+ (aria-label unaffected). */
+  #font-ctl .font-a { display: none; }
+  #font-ctl button { min-width: 30px; }
 }
 
 /* ---------- manage-users overlay ---------- */
