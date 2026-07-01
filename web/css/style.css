@@ -103,6 +103,10 @@ body {
 }
 #tabs::-webkit-scrollbar { display: none; }
 
+/* Tab strip = scrollable tabs + a pinned "New terminal" button, kept as one unit
+   so + never scrolls away; on mobile the whole strip wraps to its own full row. */
+#tab-strip { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+
 .tab {
   display: flex;
   align-items: center;
@@ -410,11 +414,21 @@ button.danger:hover { background: var(--danger); color: #fff; }
 
 @media (max-width: 640px) {
   #toolbar { gap: 6px; padding: 6px 8px; }
-  .tab { max-width: 120px; font-size: 12px; }
   #btn-paste { padding: 5px 8px; }
   /* Icon-only font controls on mobile: drop the "A", keep just -/+ (aria-label unaffected). */
   #font-ctl .font-a { display: none; }
   #font-ctl button { min-width: 30px; }
+
+  /* Two-row toolbar: status + actions on row 1 (actions pushed right), the
+     full-width tab strip on row 2, so tabs and the + button get real room. */
+  #toolbar { flex-wrap: wrap; row-gap: 6px; }
+  #tab-strip { order: 2; flex: 1 1 100%; }
+  #kb-fab { margin-left: auto; }
+
+  /* Bigger, easier-to-hit touch targets. */
+  #toolbar button { min-height: 40px; }
+  .tab { max-width: 150px; min-height: 40px; font-size: 13px; }
+  .tab-close { padding: 0 8px; font-size: 16px; }
 }
 
 /* ---------- manage-users overlay ---------- */

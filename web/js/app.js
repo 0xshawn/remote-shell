@@ -412,12 +412,6 @@
       tab.appendChild(close);
       wrap.appendChild(tab);
     });
-    const add = document.createElement('button');
-    add.id = 'tab-add';
-    add.innerHTML = '&plus;';
-    add.title = 'New terminal';
-    add.onclick = function () { createSession(); };
-    wrap.appendChild(add);
   }
 
   function nextShellName() {
@@ -749,6 +743,9 @@
   // Paste stays a top-level button (mobile-friendly); everything secondary lives
   // in the ⋯ overflow menu so the toolbar never wraps to two rows.
   $('btn-paste').onclick = function () { closeMenu(); pasteClipboard(); };
+  // "New terminal" is pinned beside the tab strip (static in HTML), so it never
+  // scrolls out of view with the tabs — on mobile the strip is its own full row.
+  $('tab-add').onclick = function () { createSession(); };
 
   const MENU_ACTIONS = {
     copy: copySelection,
