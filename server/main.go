@@ -94,9 +94,8 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": p.User, "authEnabled": s.auth.enabled})
 }
 
-// handlePassword changes the auth password. Requires a valid token AND the
+// handlePassword changes the caller's password. Requires a valid token AND the
 // correct current password, so a stolen token alone cannot lock out the account.
-// The token signing secret is unchanged, so other devices stay logged in.
 func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
 	p := s.auth.verifyToken(extractToken(r))
 	if p == nil {
@@ -116,21 +115,17 @@ func (s *server) handlePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "current password is incorrect"})
 		return
 	}
-	if len(body.NewPassword) < 6 {
+	if len(body.NewPassword) < minPasswordLen {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "new password must be at least 6 characters"})
 		return
 	}
-	if err := s.auth.setPassword(body.NewPassword); err != nil {
-		logger.Warnf("password change persist failed: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist new password"})
+	if err := s.auth.setPassword(p.User, body.NewPassword); err != nil {
+		logger.Warnf("password change failed for %s: %v", p.User, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to change password"})
 		return
 	}
-	resp := map[string]any{"ok": true}
-	if s.auth.pinned {
-		resp["warning"] = "Password changed for this session, but AUTH_PASS is set in the environment and will override it on restart. Update AUTH_PASS to make it permanent."
-	}
 	logger.Infof("password changed for user=%s", p.User)
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // handleSessions lists the authenticated user's live sessions so any device can

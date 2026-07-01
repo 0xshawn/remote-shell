@@ -5,15 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 )
 
-func pwTestServer(t *testing.T, passFile string, pinned bool) (*httptest.Server, *server) {
+func pwTestServer(t *testing.T) (*httptest.Server, *server) {
 	t.Helper()
 	cfg := &config{authEnabled: true, username: "alice", password: "s3cret", tokenSecret: "pw-secret",
-		passwordFile: passFile, passwordPinned: pinned}
+		usersFile: filepath.Join(t.TempDir(), "users.json")}
 	srv := &server{cfg: cfg, auth: newAuth(cfg)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/login", srv.handleLogin)
@@ -36,10 +35,7 @@ func changePassword(t *testing.T, base, token, oldP, newP string) *http.Response
 }
 
 func TestChangePassword(t *testing.T) {
-	dir := t.TempDir()
-	passFile := filepath.Join(dir, "password")
-	ts, _ := pwTestServer(t, passFile, false)
-
+	ts, _ := pwTestServer(t)
 	token := postLogin(t, ts.URL, map[string]any{"username": "alice", "password": "s3cret"})
 
 	// Missing token -> 401.
@@ -81,30 +77,10 @@ func TestChangePassword(t *testing.T) {
 	if resp := changePassword(t, ts.URL, token, "brandnew", "another1"); resp.StatusCode != http.StatusOK {
 		t.Fatalf("login with new password path failed: %d", resp.StatusCode)
 	}
-
-	// Persisted to file.
-	if b, err := os.ReadFile(passFile); err != nil || len(b) == 0 {
-		t.Fatalf("password file not written: err=%v", err)
-	}
-}
-
-func TestChangePasswordPinnedWarns(t *testing.T) {
-	dir := t.TempDir()
-	ts, _ := pwTestServer(t, filepath.Join(dir, "password"), true)
-	token := postLogin(t, ts.URL, map[string]any{"username": "alice", "password": "s3cret"})
-	resp := changePassword(t, ts.URL, token, "s3cret", "brandnew")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("pinned change status = %d, want 200", resp.StatusCode)
-	}
-	var out map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&out)
-	if _, hasWarn := out["warning"]; !hasWarn {
-		t.Fatalf("expected warning when password is env-pinned")
-	}
 }
 
 func TestChangePasswordNoAuthRejected(t *testing.T) {
-	cfg := &config{authEnabled: false, username: "admin", tokenSecret: "x"}
+	cfg := &config{authEnabled: false, tokenSecret: "x"}
 	srv := &server{cfg: cfg, auth: newAuth(cfg)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/password", srv.handlePassword)
